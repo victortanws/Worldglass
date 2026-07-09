@@ -2,8 +2,14 @@ const reading = document.getElementById('reading');
 const savedList = document.getElementById('saved-list');
 const exportBtn = document.getElementById('export');
 
-chrome.storage.local.get({ zhxReading: 'man' }).then((cfg) => { reading.value = cfg.zhxReading; });
+const script = document.getElementById('script');
+
+chrome.storage.local.get({ zhxReading: 'man', zhxScript: 'auto' }).then((cfg) => {
+  reading.value = cfg.zhxReading;
+  script.value = cfg.zhxScript;
+});
 reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: reading.value }));
+script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));
 
 async function renderSaved() {
   const { zhxSaved = {} } = await chrome.storage.local.get('zhxSaved');

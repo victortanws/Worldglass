@@ -245,6 +245,96 @@ function zhxCharBreakdown(word, wordPinyin, mode) {
   });
 }
 
+// Curated "literally A + B" breakdowns. Hand-picked, because decomposition can lie:
+// 东西 is not "east-west" and 马虎 is not a zoo. Entries are [breakdown, note?] where the
+// note flags idiomatic drift, phonetic loans, honorifics — anything where the parts don't
+// honestly sum to the meaning. Keys are simplified; lookup also tries the entry's s-form
+// so traditional selections (電腦) resolve too. No entry -> no line shown: silence over lies.
+const ZHX_LITERAL = {
+  // transparent compounds — the parts genuinely build the meaning
+  电脑: ['电 electric + 脑 brain'],
+  电话: ['电 electric + 话 speech'],
+  电影: ['电 electric + 影 shadow'],
+  电视: ['电 electric + 视 vision'],
+  电池: ['电 electric + 池 pool'],
+  电梯: ['电 electric + 梯 ladder'],
+  手机: ['手 hand + 机 machine'],
+  飞机: ['飞 fly + 机 machine'],
+  火车: ['火 fire + 车 vehicle'],
+  汽车: ['汽 vapour + 车 vehicle'],
+  火山: ['火 fire + 山 mountain'],
+  火锅: ['火 fire + 锅 pot'],
+  水果: ['水 water + 果 fruit'],
+  牛奶: ['牛 cow + 奶 milk'],
+  地铁: ['地 ground + 铁 iron'],
+  地图: ['地 earth + 图 chart'],
+  明天: ['明 next/bright + 天 day'],
+  今天: ['今 present + 天 day'],
+  昨天: ['昨 past + 天 day'],
+  天气: ['天 sky + 气 air/qi'],
+  空气: ['空 empty + 气 air'],
+  大学: ['大 great + 学 learning'],
+  中学: ['中 middle + 学 learning'],
+  小学: ['小 small + 学 learning'],
+  学校: ['学 study + 校 school-grounds'],
+  学生: ['学 study + 生 person'],
+  学习: ['学 study + 习 practise'],
+  中文: ['中 China + 文 writing'],
+  汉字: ['汉 Han + 字 character'],
+  名字: ['名 name + 字 given name'],
+  词典: ['词 word + 典 canon'],
+  图书馆: ['图 chart + 书 book + 馆 hall'],
+  动物: ['动 moving + 物 thing'],
+  植物: ['植 planted + 物 thing'],
+  熊猫: ['熊 bear + 猫 cat'],
+  眼镜: ['眼 eye + 镜 lens'],
+  手表: ['手 hand + 表 gauge'],
+  冰箱: ['冰 ice + 箱 chest'],
+  洗手间: ['洗 wash + 手 hand + 间 room'],
+  自行车: ['自 self + 行 travel + 车 vehicle'],
+  出租车: ['出租 rent out + 车 vehicle'],
+  长城: ['长 long + 城 wall'],
+  生日: ['生 birth + 日 day'],
+  时间: ['时 time + 间 interval'],
+  房间: ['房 house + 间 chamber'],
+  问题: ['问 ask + 题 topic'],
+  帮助: ['帮 assist + 助 aid'],
+  工作: ['工 work + 作 do'],
+  好吃: ['好 good + 吃 to eat'],
+  好看: ['好 good + 看 to look at'],
+  面包: ['面 flour + 包 bundle'],
+  故事: ['故 past + 事 matter'],
+  网站: ['网 net + 站 station'],
+  网络: ['网 net + 络 mesh'],
+  外国: ['外 outside + 国 country'],
+  中国: ['中 middle + 国 kingdom', 'historically “the Middle Kingdom”'],
+  世界: ['世 generations + 界 boundaries', 'from Buddhist usage: all of time and space'],
+  // prefixes, honorifics, grammaticalized forms — parts need a caveat
+  老师: ['老 venerable + 师 master', '老 is a respectful prefix here, not “old”'],
+  先生: ['先 before + 生 born', 'honorific: “one born before me” → Mr, sir'],
+  太太: ['太 great + 太 great', 'honorific reduplication → Mrs, wife'],
+  美国: ['美 beautiful + 国 country', '美 is phonetic, from 亚美利加 “America”'],
+  英国: ['英 outstanding + 国 country', '英 is phonetic, from 英吉利 “England”'],
+  法国: ['法 law + 国 country', '法 is phonetic, from 法兰西 “France”'],
+  // idiomatic — the meaning is NOT the sum of the parts
+  东西: ['东 east + 西 west', 'idiomatic: “things” — the parts don’t add up'],
+  马虎: ['马 horse + 虎 tiger', 'idiomatic: “careless” — from a folk tale, not the animals'],
+  马上: ['马 horse + 上 on', 'idiomatic: “at once”, originally “on horseback”'],
+  小心: ['小 small + 心 heart', 'idiomatic: “be careful” — keep your heart attentive'],
+  放心: ['放 set down + 心 heart', 'figurative: to be at ease'],
+  开心: ['开 open + 心 heart', 'figurative: happy'],
+  生气: ['生 produce + 气 qi', 'idiomatic: to get angry'],
+  大家: ['大 big + 家 household', 'idiomatic: everyone'],
+  打算: ['打 do + 算 calculate', '打 is a light verb “do” here, not “hit”'],
+  难过: ['难 hard + 过 to pass', 'figurative: sad — “hard to get through”'],
+  // pure phonetic loans — the characters only carry sound
+  咖啡: ['咖 + 啡, sound-borrowing', 'phonetic loan of “coffee” — characters carry only sound'],
+  巧克力: ['巧 + 克 + 力, sound-borrowing', 'phonetic loan of “chocolate”'],
+  沙发: ['沙 + 发, sound-borrowing', 'phonetic loan of “sofa”'],
+  幽默: ['幽 + 默, sound-borrowing', 'phonetic loan of “humour”'],
+  可乐: ['可 able + 乐 joy', 'phonetic loan of “cola”, with a lucky pun'],
+};
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
@@ -263,6 +353,7 @@ async function zhxHandle(msg) {
       word: msg.word,
       hsk: zhxHsk[msg.word] ?? 0,
       cl: zhxClassifiers(entries),
+      lit: ZHX_LITERAL[msg.word] ?? ZHX_LITERAL[entries[0].s],
       entries: entries.map((e) => ({
         s: e.s,
         t: e.t,

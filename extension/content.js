@@ -63,8 +63,19 @@
     .lnk:hover { background: #e3edfb; }
     ruby { ruby-position: over; }
     ruby rt { font-size: 10px; color: #8a8781; user-select: none; }
-    .selline { font-size: 21px; line-height: 2.2; word-break: break-all; }
+    /* CJK wraps naturally between characters; overflow-wrap only kicks in for a run that
+       can't fit a line at all. (word-break: break-all butchered alphabetic words mid-word.) */
+    .selline { font-size: 21px; line-height: 2.2; overflow-wrap: anywhere; }
+    .selline.alpha { font-size: 17px; line-height: 1.85; }
+    .selline.alpha[dir="rtl"] { font-size: 20px; line-height: 2; }
     .selline .lnk { padding: 0 1px; }
+    .litline { margin: 2px 0 6px; font-size: 12.5px; color: #6b6960; }
+    .litline .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
+    .litline .note { display: block; font-style: italic; color: #b07a3a; margin-top: 1px; }
+    .rd-row { display: flex; gap: 5px; margin: 0 0 8px; }
+    button.rd-chip { all: unset; cursor: pointer; font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid #dcd8cc; color: #6b6960; }
+    button.rd-chip:hover { border-color: #3a6ea5; color: #3a6ea5; }
+    button.rd-chip.on { background: #e3edfb; border-color: #3a6ea5; color: #3a6ea5; font-weight: 600; }
     .hint { font-size: 12px; color: #8a8781; margin-top: 8px; }
     .nf { color: #8a8781; font-style: italic; margin: 6px 0; }
     .chars { display: flex; flex-wrap: wrap; gap: 8px 16px; border-top: 1px solid #ece9e2; padding-top: 8px; margin-top: 6px; }
@@ -121,6 +132,12 @@
       .badge { background: #3a3931; color: #b5b2a6; }
       .lang-chip { background: #3a3931; color: #b5b2a6; }
       .lang-chip.switchable { color: #8ab4e8; }
+      .litline { color: #b5b2a6; }
+      .litline .lab { color: #a8a496; }
+      .litline .note { color: #d69a52; }
+      button.rd-chip { border-color: #45443c; color: #a8a496; }
+      button.rd-chip:hover { border-color: #8ab4e8; color: #8ab4e8; }
+      button.rd-chip.on { background: #2f3d50; border-color: #8ab4e8; color: #8ab4e8; }
       .zhx-footer { border-color: #45443c; color: #8f8b81; }
       .zhx-footer a { color: #a8a496; }
       .zhx-footer a:hover { color: #8ab4e8; }
@@ -310,6 +327,34 @@
   }
 
   let readingMode = 'man';
+  // Chinese script preference for rendered entries: 'auto' keeps the form as written
+  // (and matches nested lookups to their parent's script), 'simp'/'trad' always convert.
+  let scriptPref = 'auto';
+
+  const ZH_READINGS = [
+    ['man', '普', 'Mandarin — pinyin'],
+    ['yue', '粤', 'Cantonese — Jyutping'],
+    ['nan', '闽', 'Hokkien — Pe̍h-ōe-jī'],
+    ['teo', '潮', 'Teochew — Peng\'im'],
+  ];
+  // Inline reading switcher for Chinese popups. Persists the choice; applyModes re-renders
+  // any open popup in place, so switching feels instant instead of closing the popup.
+  function readingChips() {
+    const row = document.createElement('div');
+    row.className = 'rd-row';
+    for (const [id, label, title] of ZH_READINGS) {
+      const chip = document.createElement('button');
+      chip.className = 'rd-chip' + (id === readingMode ? ' on' : '');
+      chip.textContent = label;
+      chip.title = title;
+      chip.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if (id !== readingMode) chrome.storage.local.set({ zhxReading: id });
+      });
+      row.appendChild(chip);
+    }
+    return row;
+  }
 
   function speak(text) {
     try {
@@ -372,7 +417,7 @@
     }
   }
 
-  async function renderEntry(pop, word) {
+  async function renderEntry(pop, word, redirected) {
     const seq = ++renderSeq;
     pop.dataset.word = word;
     const [res, examples] = await Promise.all([
@@ -380,6 +425,22 @@
       chrome.runtime.sendMessage({ type: 'examples', word, limit: 2, lang: currentLang, reading: readingMode }).catch(() => []),
     ]);
     if (seq !== renderSeq || !pop.isConnected) return;
+
+    // Chinese script preference. CEDICT glosses quote traditional forms, so nested lookups
+    // from definitions used to open in traditional even for simplified readers. 'simp'/'trad'
+    // always convert via the entry's own s/t forms; 'auto' keeps the clicked form but makes a
+    // nested lookup follow its parent popup's script.
+    if (currentLang === 'zh' && res.found && res.entries[0] && !redirected) {
+      const e0 = res.entries[0];
+      let want = scriptPref;
+      if (want === 'auto' && pop.dataset.level === '2' && pop1?.dataset.zhScript) want = pop1.dataset.zhScript;
+      const target = want === 'simp' ? e0.s : want === 'trad' ? e0.t : null;
+      if (target && target !== word) return renderEntry(pop, target, true);
+    }
+    if (currentLang === 'zh' && res.found && res.entries[0]) {
+      const e0 = res.entries[0];
+      pop.dataset.zhScript = word === e0.s && word !== e0.t ? 'simp' : word === e0.t && word !== e0.s ? 'trad' : '';
+    }
 
     const defTexts = res.entries.flatMap((e) => e.defs.map(cleanDef));
     // Only re-segment definitions for CJK, whose glosses embed Han/kana worth linking.
@@ -456,6 +517,8 @@
     const body = document.createElement('div');
     body.className = 'body';
 
+    if (currentLang === 'zh' && res.found) body.appendChild(readingChips());
+
     if (res.redup) {
       const rd = document.createElement('div');
       rd.className = 'cl';
@@ -488,6 +551,24 @@
       }
       body.appendChild(ol);
     });
+
+    // Curated "literally A + B" line — worker sends `lit` only for hand-checked compounds,
+    // with a note whenever the parts don't honestly sum to the meaning.
+    if (res.lit) {
+      const litRow = document.createElement('div');
+      litRow.className = 'litline';
+      const lab = document.createElement('span');
+      lab.className = 'lab';
+      lab.textContent = 'literally';
+      litRow.append(lab, res.lit[0]);
+      if (res.lit[1]) {
+        const note = document.createElement('span');
+        note.className = 'note';
+        note.textContent = res.lit[1];
+        litRow.appendChild(note);
+      }
+      body.appendChild(litRow);
+    }
 
     if (res.cl && res.cl.length) {
       const clRow = document.createElement('div');
@@ -687,6 +768,7 @@
     }
     closePopup(1);
     const pop = pop1 = makePopup(1);
+    pop.dataset.kind = 'sel'; // lets applyModes re-run the selection instead of a word lookup
     header(pop, (hdr) => {
       const w = document.createElement('span');
       w.className = 'w';
@@ -697,8 +779,13 @@
     }, false);
     const body = document.createElement('div');
     body.className = 'body';
+    if (currentLang === 'zh' && !mixed) body.appendChild(readingChips());
     const line = document.createElement('div');
     line.className = 'selline';
+    // Alphabetic scripts read at body size with normal word wrapping; the large 21px line
+    // is for CJK, where per-character ruby needs the room.
+    const cjkLine = mixed ? langs.some((l) => ['zh', 'ja', 'ko'].includes(l)) : ['zh', 'ja', 'ko'].includes(currentLang);
+    if (!cjkLine) line.classList.add('alpha');
     // 'auto' lets the browser bidi-order each run, so an RTL run (Hebrew/Arabic) inside a
     // mixed selection reads correctly alongside LTR runs.
     line.setAttribute('dir', !mixed && meta().dir === 'rtl' ? 'rtl' : 'auto');
@@ -949,20 +1036,38 @@
     if (nodes.length) await annotateNodes(nodes);
   }
 
-  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man' };
+  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto' };
+
+  // Re-render whatever popups are open (nested first) so a reading/script change updates
+  // them live — closing the popup the user is looking at made switching feel broken.
+  function rerenderPopups() {
+    if (pop1?.isConnected) {
+      if (pop1.dataset.kind === 'sel' && selState) {
+        openSelection(selState.text, selState.getRect, selState.truncated);
+      } else if (pop1.dataset.word) {
+        const nested = pop2?.isConnected ? pop2.dataset.word : null;
+        renderEntry(pop1, pop1.dataset.word).then(() => {
+          if (nested && pop2?.isConnected) renderEntry(pop2, nested);
+        });
+      }
+    } else if (pop2?.isConnected && pop2.dataset.word) {
+      renderEntry(pop2, pop2.dataset.word);
+    }
+  }
 
   function applyModes(cfg) {
     ensurePageStyle();
     knownMax = Number(cfg.zhxHskMax) || 0;
     const newReading = cfg.zhxReading ?? 'man';
+    const newScript = cfg.zhxScript ?? 'auto';
     const readingChanged = newReading !== readingMode;
+    const scriptChanged = newScript !== scriptPref;
     readingMode = newReading;
-    if (readingChanged) {
-      closePopup(1);
-      if (annotated) {
-        revertAnnotation();
-        if (cfg.zhxPinyin || cfg.zhxBounds) annotatePage().then(reapplyKnown);
-      }
+    scriptPref = newScript;
+    if (readingChanged || scriptChanged) rerenderPopups();
+    if (readingChanged && annotated) {
+      revertAnnotation();
+      if (cfg.zhxPinyin || cfg.zhxBounds) annotatePage().then(reapplyKnown);
     }
     document.documentElement.classList.toggle('zhx-py', !!cfg.zhxPinyin);
     document.documentElement.classList.toggle('zhx-bd', !!cfg.zhxBounds);
@@ -972,13 +1077,14 @@
 
   chrome.storage.local.get(SETTINGS).then((cfg) => {
     readingMode = cfg.zhxReading ?? 'man';
+    scriptPref = cfg.zhxScript ?? 'auto';
     if (cfg.zhxPinyin || cfg.zhxBounds) applyModes(cfg);
     else knownMax = Number(cfg.zhxHskMax) || 0;
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes)) return;
+    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes) && !('zhxScript' in changes)) return;
     chrome.storage.local.get(SETTINGS).then(applyModes);
   });
 })();
