@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Worldglass — multilingual reading assistant",
+  "version": "2.0.0",
+  "description": "Hold any word up to the glass: Worldglass auto-detects the language and shows its reading, meaning, examples, and the characters it is built from — in Chinese, Japanese, Korean, Arabic, Jawi, Hebrew, French, German, Spanish, and Malay (more on request). OCR reads text in images. Everything runs on your device.",
+  "permissions": [
+    "storage",
+    "offscreen",
+    "activeTab"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "detect.js",
+        "content.js",
+        "ocr-snip.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "toolbar/popup.html",
+    "default_title": "Worldglass",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}
