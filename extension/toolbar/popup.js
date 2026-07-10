@@ -14,18 +14,50 @@ reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: 
 script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));
 fabToggle.addEventListener('change', () => chrome.storage.local.set({ zhxFab: fabToggle.checked }));
 
+const shelvesEl = document.getElementById('shelves');
+const reviewBtn = document.getElementById('review');
+const WG_KNOWN = 4;
+const wgState = (e) => ((e.box ?? 1) >= WG_KNOWN ? 'known' : (e.correct ?? 0) >= 1 ? 'learning' : 'new');
+
+reviewBtn.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id != null) chrome.tabs.sendMessage(tab.id, { type: 'startReview' }).catch(() => {});
+  window.close();
+});
+
 async function renderSaved() {
   const { zhxSaved = {} } = await chrome.storage.local.get('zhxSaved');
   const words = Object.entries(zhxSaved).sort((a, b) => (b[1].t ?? 0) - (a[1].t ?? 0));
   savedList.textContent = '';
+  shelvesEl.textContent = '';
   exportBtn.style.display = words.length ? '' : 'none';
   if (!words.length) {
+    reviewBtn.style.display = 'none';
     const li = document.createElement('li');
     li.className = 'empty';
-    li.textContent = 'No saved words yet';
+    li.textContent = 'No saved words yet — select a word on any page and tap ☆ to start your collection.';
     savedList.appendChild(li);
     return;
   }
+  // Shelves mirror competence (no points): learning / known-by-heart, plus how many are due.
+  const now = Date.now();
+  const counts = { new: 0, learning: 0, known: 0, due: 0 };
+  for (const [, e] of words) { counts[wgState(e)]++; if ((e.due ?? 0) <= now) counts.due++; }
+  const shelves = [
+    ['learning', 'learning', counts.new + counts.learning],
+    ['known', 'known by heart', counts.known],
+    ['due', 'ready to review', counts.due],
+  ];
+  for (const [key, label, value] of shelves) {
+    const d = document.createElement('div');
+    d.className = 'shelf ' + key;
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = value;
+    const l = document.createElement('span'); l.className = 'l'; l.textContent = label;
+    d.append(n, l);
+    shelvesEl.appendChild(d);
+  }
+  reviewBtn.style.display = counts.due >= 1 ? '' : 'none';
+  reviewBtn.textContent = counts.due >= 1 ? `Review now (${counts.due})` : 'Review now';
   for (const [word, info] of words) {
     const li = document.createElement('li');
     const w = document.createElement('span'); w.className = 'w'; w.textContent = word;
@@ -38,7 +70,11 @@ async function renderSaved() {
       await chrome.storage.local.set({ zhxSaved });
       renderSaved();
     });
-    li.append(w, p, d, del);
+    const st = document.createElement('span');
+    st.className = 'st ' + wgState(info);
+    st.textContent = wgState(info) === 'known' ? '🌱' : '';
+    st.title = wgState(info) === 'known' ? 'Known by heart' : '';
+    li.append(w, p, d, st, del);
     savedList.appendChild(li);
   }
 }

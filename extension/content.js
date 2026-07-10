@@ -116,6 +116,34 @@
     .lang-chip.switchable:hover { background: #e3edfb; }
     .zhx-fab { position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; width: 36px; height: 36px; border-radius: 50%; border: 1px solid #c9d8ea; background: #f7f6f1; color: #3a6ea5; font: 16px/1 sans-serif; cursor: pointer; opacity: .5; box-shadow: 0 2px 10px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; transition: opacity .15s ease; touch-action: none; }
     .zhx-fab:hover { opacity: 1; }
+    /* Review — ambient bar (quiet at the edge, never covers the page) + retrieval card */
+    .zhx-rbar { position: fixed; left: 16px; bottom: 16px; z-index: 2147483646; display: flex; align-items: stretch; background: #fff; border: 1px solid #d7e0ea; border-radius: 10px; box-shadow: 0 3px 14px rgba(20,30,45,.16); overflow: hidden; max-width: 92vw; }
+    .zhx-rbar-go { all: unset; cursor: pointer; padding: 8px 12px; font: 13px/1.3 -apple-system, sans-serif; color: #35618c; }
+    .zhx-rbar-go:hover { background: #eef4fb; }
+    .zhx-rbar-x { all: unset; cursor: pointer; padding: 0 10px; color: #9a968c; border-left: 1px solid #eee6d6; }
+    .zhx-rbar-x:hover { color: #444; }
+    .zhx-pop[data-kind="review"] { width: 320px; }
+    .rvw { text-align: center; }
+    .rvw-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .rvw-h { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: #8a8781; flex: 1; text-align: left; }
+    .rvw-count { font-size: 12px; color: #8a8781; }
+    button.nav.rvw-close { all: unset; cursor: pointer; color: #9a968c; padding: 0 2px; }
+    .rvw-word { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px 0 2px; }
+    .rvw-w { font-size: 34px; color: #26251f; }
+    .rvw-read { color: #3a6ea5; font-size: 15px; margin-bottom: 12px; }
+    .rvw-q { font-size: 13px; color: #6b6960; margin: 8px 0; }
+    .rvw-opts, .rvw-selfgrade { display: flex; flex-direction: column; gap: 7px; }
+    button.rvw-opt { all: unset; cursor: pointer; padding: 9px 12px; border: 1px solid #dcd8cc; border-radius: 9px; font-size: 14px; color: #26251f; text-align: center; }
+    button.rvw-opt:hover:not(:disabled) { border-color: #3a6ea5; background: #f2f7fd; }
+    button.rvw-opt.right { border-color: #6fae7d; background: #eef7f0; color: #2f7a45; }
+    button.rvw-opt.wrong { border-color: #d9b877; background: #faf4e6; color: #9a6a1e; }
+    button.rvw-reveal { all: unset; cursor: pointer; padding: 9px 16px; border: 1px solid #c9d8ea; border-radius: 9px; color: #3a6ea5; font-size: 14px; }
+    .rvw-fb { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #ece5d6; }
+    .rvw-fb-t { font-size: 15px; font-weight: 600; }
+    .rvw-fb.ok .rvw-fb-t { color: #2f7a45; } .rvw-fb.again .rvw-fb-t { color: #9a6a1e; }
+    .rvw-mean { color: #4a483f; font-size: 14px; margin-top: 5px; }
+    button.rvw-next { all: unset; cursor: pointer; margin-top: 14px; padding: 8px 20px; background: #3a6ea5; color: #fff; border-radius: 9px; font-size: 14px; }
+    .rvw-grad { font-size: 15px; color: #2f7a45; margin: 6px 0 4px; }
     .zhx-footer { border-top: 1px solid #ece9e2; padding: 7px 12px 9px; font-size: 11px; line-height: 1.5; color: #a19d94; }
     .zhx-footer a { color: #8a867d; text-decoration: none; }
     .zhx-footer a:hover { color: #3a6ea5; text-decoration: underline; }
@@ -151,6 +179,16 @@
       button.rd-chip.on { background: #2f3d50; border-color: #8ab4e8; color: #8ab4e8; }
       .rd-sep { background: #45443c; }
       .zhx-fab { background: #26251f; border-color: #3f5876; color: #8ab4e8; }
+      .zhx-rbar { background: #26251f; border-color: #3f5876; }
+      .zhx-rbar-go { color: #8ab4e8; } .zhx-rbar-go:hover { background: #2f3d50; }
+      .zhx-rbar-x { color: #8f8b81; border-color: #45443c; } .zhx-rbar-x:hover { color: #ece9e2; }
+      .rvw-w { color: #ece9e2; } .rvw-read { color: #8ab4e8; } .rvw-q { color: #b5b2a6; }
+      button.rvw-opt { border-color: #45443c; color: #ece9e2; } button.rvw-opt:hover:not(:disabled) { border-color: #8ab4e8; background: #2f3d50; }
+      button.rvw-opt.right { border-color: #4f7f5c; background: #24352a; color: #86c896; }
+      button.rvw-opt.wrong { border-color: #7f6a3f; background: #35301f; color: #d6a95a; }
+      button.rvw-reveal { border-color: #3f5876; color: #8ab4e8; }
+      .rvw-fb { border-color: #45443c; } .rvw-fb.ok .rvw-fb-t { color: #86c896; } .rvw-fb.again .rvw-fb-t { color: #d6a95a; }
+      .rvw-mean { color: #cfccc2; } .rvw-grad { color: #86c896; }
       .zhx-footer { border-color: #45443c; color: #8f8b81; }
       .zhx-footer a { color: #a8a496; }
       .zhx-footer a:hover { color: #8ab4e8; }
@@ -461,6 +499,190 @@
     return !!saved[word];
   }
 
+  // ---------- Review: retrieval practice on saved words ----------
+  // From a seven-persona design review (Chinese linguist, absolute beginner, teacher,
+  // educator, SLA/cognitive-science researcher, parent, child). A lookup is recognition,
+  // not recall — it builds comprehension but little memory. Review closes the loop with
+  // FORCED-CHOICE retrieval (commit an answer before the reveal → the generation effect,
+  // not the fluency illusion), expanding-interval spacing (two correct recalls before
+  // intervals grow), and — deliberately — NO points, streaks, goals, or prizes. The only
+  // feedback is the collection growing and a "known by heart" shelf: competence as a
+  // mirror (researcher), "watching that shelf grow = my brain got bigger" (the 8-year-old).
+  const WG_BOX_MS = { 1: 8 * 60e3, 2: 22 * 3600e3, 3: 3 * 86400e3, 4: 7 * 86400e3, 5: 21 * 86400e3 };
+  const WG_KNOWN = 4;
+  function wgState(e) { const b = e.box ?? 1; return b >= WG_KNOWN ? 'known' : (e.correct ?? 0) >= 1 ? 'learning' : 'new'; }
+  function wgDue(saved, now) { now = now ?? Date.now(); return Object.keys(saved).filter((w) => (saved[w].due ?? 0) <= now); }
+  function wgShort(s) { return cleanDef(String(s ?? '')).replace(/^\s*\d+\.\s*/, '').split(/[;,]|\bof\b/)[0].trim().slice(0, 36); }
+  function txtEl(cls, t) { const d = document.createElement('div'); d.className = cls; d.textContent = t; return d; }
+  function placeCenter(el) {
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.left = `${Math.round(window.scrollX + Math.max(8, (document.documentElement.clientWidth - w) / 2))}px`;
+    el.style.top = `${Math.round(window.scrollY + Math.max(12, (window.innerHeight - h) / 2))}px`;
+  }
+
+  let reviewBar = null;
+  let reviewBarDismissed = false;
+  let reviewOn = false;
+  async function refreshReviewBar() {
+    if (!IS_TOP || reviewBarDismissed || reviewOn) return;
+    const due = wgDue(await getSaved());
+    if (due.length < 3) { reviewBar?.remove(); reviewBar = null; return; }
+    ensureUI();
+    if (!reviewBar) {
+      reviewBar = document.createElement('div');
+      reviewBar.className = 'zhx-rbar';
+      shadow.appendChild(reviewBar);
+    }
+    reviewBar.textContent = '';
+    const label = document.createElement('button');
+    label.className = 'zhx-rbar-go';
+    label.textContent = `🔖 ${due.length} of your words are ready — show what you know`;
+    label.addEventListener('click', () => startReview());
+    const x = document.createElement('button');
+    x.className = 'zhx-rbar-x'; x.textContent = '✕'; x.title = 'Not now';
+    x.addEventListener('click', () => { reviewBarDismissed = true; reviewBar?.remove(); reviewBar = null; });
+    reviewBar.append(label, x);
+  }
+  function hideReviewBar() { reviewBar?.remove(); reviewBar = null; }
+
+  async function startReview() {
+    if (reviewOn) return;
+    const saved = await getSaved();
+    const due = wgDue(saved).sort((a, b) => (saved[a].due ?? 0) - (saved[b].due ?? 0)).slice(0, 7);
+    if (!due.length) return;
+    reviewOn = true;
+    hideReviewBar();
+    ensureUI();
+    const graduated = [];
+    let i = 0;
+
+    async function grade(word, correct) {
+      const e = saved[word];
+      if (correct) e.correct = (e.correct ?? 0) + 1;
+      const wasKnown = (e.box ?? 1) >= WG_KNOWN;
+      e.box = correct ? Math.min(5, (e.box ?? 1) + 1) : 1; // wrong → "again soon", never punished harder
+      e.due = Date.now() + WG_BOX_MS[e.box];
+      e.last = Date.now();
+      if (!wasKnown && e.box >= WG_KNOWN) graduated.push(word);
+      await chrome.storage.local.set({ zhxSaved: saved });
+    }
+    function distractors(word) {
+      const right = wgShort(saved[word].d);
+      const lang = saved[word].lang;
+      const pool = Object.keys(saved).filter((w) => w !== word && wgShort(saved[w].d) && wgShort(saved[w].d) !== right);
+      const same = pool.filter((w) => saved[w].lang === lang);
+      const bag = [...(same.length >= 3 ? same : pool)];
+      const picks = [];
+      while (picks.length < 3 && bag.length) {
+        const g = wgShort(saved[bag.splice(Math.floor(Math.random() * bag.length), 1)[0]].d);
+        if (g && !picks.includes(g)) picks.push(g);
+      }
+      return picks;
+    }
+    function reveal(word, correct) {
+      const e = saved[word];
+      const body = pop1.querySelector('.rvw');
+      const fb = document.createElement('div');
+      fb.className = 'rvw-fb ' + (correct ? 'ok' : 'again');
+      fb.append(txtEl('rvw-fb-t', correct ? '✓ Yes!' : 'That’s okay — you’ll see this one again soon'));
+      fb.append(txtEl('rvw-mean', cleanDef(e.d)));
+      body.appendChild(fb);
+      const next = document.createElement('button');
+      next.className = 'rvw-next';
+      next.textContent = i + 1 < due.length ? 'Next →' : 'Done';
+      next.addEventListener('click', () => { i += 1; if (i < due.length) renderCard(); else endReview(); });
+      body.appendChild(next);
+      next.focus();
+    }
+    async function choose(word, correct, list, chosen) {
+      const right = wgShort(saved[word].d);
+      [...list.children].forEach((b) => { b.disabled = true; if (b.textContent === right) b.classList.add('right'); });
+      if (!correct) chosen.classList.add('wrong');
+      speak(word);
+      await grade(word, correct);
+      reveal(word, correct);
+    }
+    function renderCard() {
+      const word = due[i];
+      const e = saved[word];
+      if (LANG_META[e.lang]) currentLang = e.lang; // TTS voice + script for this word
+      closePopup(1);
+      const pop = pop1 = makePopup(1);
+      pop.dataset.kind = 'review';
+      const body = document.createElement('div');
+      body.className = 'body rvw';
+      const top = document.createElement('div');
+      top.className = 'rvw-top';
+      top.append(txtEl('rvw-h', 'Show what you know'), txtEl('rvw-count', `${i + 1} / ${due.length}`));
+      const close = document.createElement('button');
+      close.className = 'nav rvw-close'; close.textContent = '✕'; close.title = 'Done for now';
+      close.addEventListener('click', endReview);
+      top.appendChild(close);
+      body.appendChild(top);
+      const wEl = document.createElement('div');
+      wEl.className = 'rvw-word';
+      const wl = document.createElement('span'); wl.className = 'rvw-w'; wl.textContent = word;
+      wEl.append(wl, speakButton(word, 'Hear it'));
+      body.appendChild(wEl);
+      if (e.p) body.appendChild(txtEl('rvw-read', e.p));
+      const distr = distractors(word);
+      if (distr.length) {
+        body.appendChild(txtEl('rvw-q', 'What does it mean?'));
+        const opts = [wgShort(e.d), ...distr];
+        for (let k = opts.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [opts[k], opts[j]] = [opts[j], opts[k]]; }
+        const list = document.createElement('div');
+        list.className = 'rvw-opts';
+        for (const opt of opts) {
+          const b = document.createElement('button');
+          b.className = 'rvw-opt'; b.textContent = opt;
+          b.addEventListener('click', () => choose(word, opt === wgShort(e.d), list, b));
+          list.appendChild(b);
+        }
+        body.appendChild(list);
+      } else {
+        body.appendChild(txtEl('rvw-q', 'Do you remember it? Try, then check.'));
+        const chk = document.createElement('button');
+        chk.className = 'rvw-reveal'; chk.textContent = 'Check';
+        chk.addEventListener('click', () => {
+          chk.remove();
+          body.appendChild(txtEl('rvw-mean', cleanDef(e.d)));
+          const g = document.createElement('div'); g.className = 'rvw-selfgrade';
+          for (const [ok, t] of [[true, 'I knew it'], [false, 'Not yet']]) {
+            const b = document.createElement('button');
+            b.className = 'rvw-opt'; b.textContent = t;
+            b.addEventListener('click', async () => { speak(word); await grade(word, ok); g.remove(); reveal(word, ok); });
+            g.appendChild(b);
+          }
+          body.appendChild(g);
+        });
+        body.appendChild(chk);
+      }
+      pop.appendChild(body);
+      placeCenter(pop);
+    }
+    function endReview() {
+      reviewOn = false;
+      closePopup(1);
+      if (graduated.length) {
+        const pop = pop1 = makePopup(1);
+        pop.dataset.kind = 'review';
+        const body = document.createElement('div');
+        body.className = 'body rvw rvw-done';
+        body.append(txtEl('rvw-h', 'Nice reading.'));
+        body.append(txtEl('rvw-grad', `${graduated.length} word${graduated.length > 1 ? 's' : ''} moved to your Known-by-heart shelf 🌱`));
+        const done = document.createElement('button');
+        done.className = 'rvw-next'; done.textContent = 'Done';
+        done.addEventListener('click', () => closePopup(1));
+        body.appendChild(done);
+        pop.appendChild(body);
+        placeCenter(pop);
+      }
+      reviewBarDismissed = false;
+      refreshReviewBar();
+    }
+    renderCard();
+  }
+
   function withTimeout(promise, ms) {
     return Promise.race([
       promise,
@@ -574,7 +796,10 @@
             p: res.entries[0].p,
             d: res.entries[0].defs.map(cleanDef).filter(Boolean).slice(0, 2).join('; '),
             t: Date.now(),
+            lang: currentLang,
+            box: 1, correct: 0, due: Date.now() + WG_BOX_MS[1], // spaced-review schedule
           });
+          if (on) refreshReviewBar();
           star.textContent = on ? '★' : '☆';
           star.classList.toggle('on', on);
         });
@@ -1062,13 +1287,23 @@
     return null;
   }
 
+  // Ambient review nudge: the trigger is the reader's own next selection (a natural pause),
+  // throttled so it never nags. It only ever offers — the bar is dismissible and skippable.
+  let lastNudge = 0;
+  function maybeReviewNudge() {
+    if (Date.now() - lastNudge < 25000) return;
+    lastNudge = Date.now();
+    refreshReviewBar();
+  }
+
   document.addEventListener('mouseup', (ev) => {
     if (ev.composedPath().includes(host)) return;
     setTimeout(async () => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return;
+      if (!sel || sel.isCollapsed) { maybeReviewNudge(); return; }
       let text = selectionText(sel);
       if (!text) return;
+      maybeReviewNudge();
       const ctx = contextSample(sel.anchorNode);
       let det = LensDetect.detect(text, ctx, document.documentElement.lang);
       if (!det.supported || !LANG_META[det.lang]) {
@@ -1312,6 +1547,12 @@
     ensureFab();
     if (cfg.zhxPinyin || cfg.zhxBounds) applyModes(cfg);
     else knownMax = Number(cfg.zhxHskMax) || 0;
+    if (IS_TOP) setTimeout(refreshReviewBar, 1500); // gentle: surface due words shortly after load
+  });
+
+  // "Review now" from the toolbar collection.
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === 'startReview') startReview();
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {

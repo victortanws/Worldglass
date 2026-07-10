@@ -20,12 +20,20 @@
     button.act { font: inherit; font-size: 12px; cursor: pointer; padding: 3px 10px; border: 1px solid #c9d8ea; border-radius: 6px; background: #fff; color: #3a6ea5; }
     button.act:hover { background: #e3edfb; }
     .empty { color: #8a8781; font-size: 12px; font-style: italic; }
+    #shelves { display: flex; gap: 6px; margin: 2px 0 2px; }
+    .shelf { flex: 1; text-align: center; border: 1px solid #ece5d6; border-radius: 8px; padding: 6px 2px; }
+    .shelf .n { font-size: 18px; font-weight: 600; display: block; color: #26251f; }
+    .shelf .l { font-size: 10px; color: #8a8781; text-transform: uppercase; letter-spacing: .03em; }
+    .shelf.known .n { color: #2f7a45; } .shelf.due .n { color: #a86a1e; }
+    #saved-list .st { font-size: 12px; } .st.known { filter: none; }
     @media (prefers-color-scheme: dark) {
       body { background: #26251f; color: #ece9e2; }
       h2, .d, .sub, .langs { color: #b5b2a6; }
       #saved-list li { border-color: #3a3931; }
       button.act { background: #26251f; color: #8ab4e8; border-color: #3f5876; }
       .empty, p.hint { color: #a8a496; }
+      .shelf { border-color: #45443c; } .shelf .n { color: #ece9e2; } .shelf .l { color: #a8a496; }
+      .shelf.known .n { color: #86c896; } .shelf.due .n { color: #d6a95a; }
     }
   </style>
 </head>
@@ -51,7 +59,9 @@
   <label class="row">Floating OCR button on pages
     <input type="checkbox" id="fab">
   </label>
-  <h2>Saved words</h2>
+  <h2>Your words</h2>
+  <div id="shelves"></div>
+  <button class="act" id="review" style="margin-top:6px;display:none">Review now</button>
   <ul id="saved-list"></ul>
   <button class="act" id="export">Copy as CSV (Anki)</button>
   <h2>Languages</h2>
