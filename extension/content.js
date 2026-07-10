@@ -69,6 +69,9 @@
     .selline.alpha { font-size: 17px; line-height: 1.85; }
     .selline.alpha[dir="rtl"] { font-size: 20px; line-height: 2; }
     .selline .lnk { padding: 0 1px; }
+    .gram { margin: 0 0 7px; font-size: 12.5px; color: #3a6ea5; }
+    .gram .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
+    .gram .gram-l { font-weight: 600; border-radius: 4px; padding: 0 2px; }
     .litline { margin: 2px 0 6px; font-size: 12.5px; color: #6b6960; }
     .litline .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
     .litline .note { display: block; font-style: italic; color: #b07a3a; margin-top: 1px; }
@@ -135,6 +138,8 @@
       .badge { background: #3a3931; color: #b5b2a6; }
       .lang-chip { background: #3a3931; color: #b5b2a6; }
       .lang-chip.switchable { color: #8ab4e8; }
+      .gram { color: #8ab4e8; }
+      .gram .lab { color: #a8a496; }
       .litline { color: #b5b2a6; }
       .litline .lab { color: #a8a496; }
       .litline .note { color: #d69a52; }
@@ -585,6 +590,24 @@
       nf.className = 'nf';
       nf.textContent = 'No dictionary entry for this exact string.';
       body.appendChild(nf);
+    }
+
+    // Structured grammar line: which conjugation/inflection this form is, of which lemma
+    // ("futur antérieur (future perfect) of parler", "causative + passive + past of 食べる").
+    // The lemma is clickable into nested lookup.
+    if (res.gram && res.gram.f) {
+      const gr = document.createElement('div');
+      gr.className = 'gram';
+      const lab = document.createElement('span');
+      lab.className = 'lab';
+      lab.textContent = 'form';
+      gr.append(lab, `${res.gram.f} of `);
+      const lem = document.createElement('span');
+      lem.className = 'lnk gram-l';
+      lem.dataset.w = res.gram.l;
+      lem.textContent = res.gram.l;
+      gr.appendChild(lem);
+      body.appendChild(gr);
     }
 
     res.entries.forEach((entry, i) => {

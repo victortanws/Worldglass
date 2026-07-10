@@ -400,40 +400,61 @@ function zhxKataToHira(s) {
   return s.replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
 }
 
+// [suffix, bases, label] — the label names the inflection the rule undoes, so a lookup can
+// report the path it took (食べさせられた → causative + passive + past) instead of silently
+// landing on the lemma.
 const ZHX_DEINFLECT = [
-  ['ませんでした', ['ます']], ['ましょう', ['ます']], ['ません', ['ます']], ['ました', ['ます']],
-  ['ていました', ['て']], ['でいました', ['で']], ['ています', ['て']], ['でいます', ['で']],
-  ['ていた', ['て']], ['でいた', ['で']], ['ている', ['て']], ['でいる', ['で']],
-  ['てる', ['て']], ['でる', ['で']],
-  ['きます', ['く', 'くる']], ['ぎます', ['ぐ']], ['します', ['す', 'する']], ['ちます', ['つ']],
-  ['にます', ['ぬ']], ['びます', ['ぶ']], ['みます', ['む']], ['ります', ['る']], ['います', ['う']],
-  ['ます', ['る']],
-  ['かった', ['い']], ['くない', ['い']], ['くて', ['い']], ['くなかった', ['い']],
-  ['った', ['う', 'つ', 'る']], ['いた', ['く']], ['いだ', ['ぐ']], ['んだ', ['ぬ', 'ぶ', 'む']],
-  ['って', ['う', 'つ', 'る']], ['いて', ['く']], ['いで', ['ぐ']], ['んで', ['ぬ', 'ぶ', 'む']],
-  ['かない', ['く']], ['がない', ['ぐ']], ['さない', ['す']], ['たない', ['つ']], ['なない', ['ぬ']],
-  ['ばない', ['ぶ']], ['まない', ['む']], ['らない', ['る']], ['わない', ['う']],
-  ['した', ['す', 'する']], ['して', ['す', 'する']], ['しない', ['する']],
-  ['たい', ['る']], ['なかった', ['ない', 'る']], ['ない', ['る']],
+  ['ませんでした', ['ます'], 'polite negative past'], ['ましょう', ['ます'], 'polite volitional'],
+  ['ません', ['ます'], 'polite negative'], ['ました', ['ます'], 'polite past'],
+  ['ていました', ['て'], 'progressive polite past'], ['でいました', ['で'], 'progressive polite past'],
+  ['ています', ['て'], 'progressive polite'], ['でいます', ['で'], 'progressive polite'],
+  ['ていた', ['て'], 'progressive past'], ['でいた', ['で'], 'progressive past'],
+  ['ている', ['て'], 'progressive'], ['でいる', ['で'], 'progressive'],
+  ['てる', ['て'], 'progressive'], ['でる', ['で'], 'progressive'],
+  ['きます', ['く', 'くる'], 'polite'], ['ぎます', ['ぐ'], 'polite'], ['します', ['す', 'する'], 'polite'],
+  ['ちます', ['つ'], 'polite'], ['にます', ['ぬ'], 'polite'], ['びます', ['ぶ'], 'polite'],
+  ['みます', ['む'], 'polite'], ['ります', ['る'], 'polite'], ['います', ['う'], 'polite'],
+  ['ます', ['る'], 'polite'],
+  ['かった', ['い'], 'past'], ['くない', ['い'], 'negative'], ['くて', ['い'], 'te-form'],
+  ['くなかった', ['い'], 'negative past'],
+  ['った', ['う', 'つ', 'る'], 'past'], ['いた', ['く'], 'past'], ['いだ', ['ぐ'], 'past'],
+  ['んだ', ['ぬ', 'ぶ', 'む'], 'past'],
+  ['って', ['う', 'つ', 'る'], 'te-form'], ['いて', ['く'], 'te-form'], ['いで', ['ぐ'], 'te-form'],
+  ['んで', ['ぬ', 'ぶ', 'む'], 'te-form'],
+  ['かない', ['く'], 'negative'], ['がない', ['ぐ'], 'negative'], ['さない', ['す'], 'negative'],
+  ['たない', ['つ'], 'negative'], ['なない', ['ぬ'], 'negative'], ['ばない', ['ぶ'], 'negative'],
+  ['まない', ['む'], 'negative'], ['らない', ['る'], 'negative'], ['わない', ['う'], 'negative'],
+  ['した', ['す', 'する'], 'past'], ['して', ['す', 'する'], 'te-form'], ['しない', ['する'], 'negative'],
+  ['たい', ['る'], 'desiderative (-tai)'], ['なかった', ['ない', 'る'], 'negative past'], ['ない', ['る'], 'negative'],
   // Causative (せる/させる)
-  ['させる', ['す', 'る', 'する']], ['かせる', ['く']], ['がせる', ['ぐ']], ['たせる', ['つ']],
-  ['なせる', ['ぬ']], ['ばせる', ['ぶ']], ['ませる', ['む']], ['らせる', ['る']], ['わせる', ['う']],
+  ['させる', ['す', 'る', 'する'], 'causative'], ['かせる', ['く'], 'causative'], ['がせる', ['ぐ'], 'causative'],
+  ['たせる', ['つ'], 'causative'], ['なせる', ['ぬ'], 'causative'], ['ばせる', ['ぶ'], 'causative'],
+  ['ませる', ['む'], 'causative'], ['らせる', ['る'], 'causative'], ['わせる', ['う'], 'causative'],
   // Passive / potential (れる/られる)
-  ['られる', ['る']], ['かれる', ['く']], ['がれる', ['ぐ']], ['される', ['す', 'する']], ['たれる', ['つ']],
-  ['なれる', ['ぬ']], ['ばれる', ['ぶ']], ['まれる', ['む']], ['われる', ['う']],
+  ['られる', ['る'], 'passive/potential'], ['かれる', ['く'], 'passive'], ['がれる', ['ぐ'], 'passive'],
+  ['される', ['す', 'する'], 'passive'], ['たれる', ['つ'], 'passive'], ['なれる', ['ぬ'], 'passive'],
+  ['ばれる', ['ぶ'], 'passive'], ['まれる', ['む'], 'passive'], ['われる', ['う'], 'passive'],
   // Volitional (よう/おう)
-  ['しよう', ['する']], ['よう', ['る']], ['こう', ['く']], ['ごう', ['ぐ']], ['そう', ['す']], ['とう', ['つ']],
-  ['のう', ['ぬ']], ['ぼう', ['ぶ']], ['もう', ['む']], ['ろう', ['る']], ['おう', ['う']],
+  ['しよう', ['する'], 'volitional'], ['よう', ['る'], 'volitional'], ['こう', ['く'], 'volitional'],
+  ['ごう', ['ぐ'], 'volitional'], ['そう', ['す'], 'volitional'], ['とう', ['つ'], 'volitional'],
+  ['のう', ['ぬ'], 'volitional'], ['ぼう', ['ぶ'], 'volitional'], ['もう', ['む'], 'volitional'],
+  ['ろう', ['る'], 'volitional'], ['おう', ['う'], 'volitional'],
   // Imperative (godan え-row, ichidan ろ/よ)
-  ['ろ', ['る']], ['よ', ['る']], ['け', ['く']], ['げ', ['ぐ']], ['せ', ['す']], ['ね', ['ぬ']],
-  ['べ', ['ぶ']], ['め', ['む']], ['れ', ['る']], ['え', ['う']],
+  ['ろ', ['る'], 'imperative'], ['よ', ['る'], 'imperative'], ['け', ['く'], 'imperative'],
+  ['げ', ['ぐ'], 'imperative'], ['せ', ['す'], 'imperative'], ['ね', ['ぬ'], 'imperative'],
+  ['べ', ['ぶ'], 'imperative'], ['め', ['む'], 'imperative'], ['れ', ['る'], 'imperative'],
+  ['え', ['う'], 'imperative'],
   // Conditional -ば
-  ['ければ', ['い']], ['けば', ['く']], ['げば', ['ぐ']], ['せば', ['す']], ['てば', ['つ']], ['ねば', ['ぬ']],
-  ['べば', ['ぶ']], ['めば', ['む']], ['れば', ['る']], ['えば', ['う']],
+  ['ければ', ['い'], 'conditional (-ba)'], ['けば', ['く'], 'conditional (-ba)'], ['げば', ['ぐ'], 'conditional (-ba)'],
+  ['せば', ['す'], 'conditional (-ba)'], ['てば', ['つ'], 'conditional (-ba)'], ['ねば', ['ぬ'], 'conditional (-ba)'],
+  ['べば', ['ぶ'], 'conditional (-ba)'], ['めば', ['む'], 'conditional (-ba)'], ['れば', ['る'], 'conditional (-ba)'],
+  ['えば', ['う'], 'conditional (-ba)'],
   // Conditional -たら/-だら
-  ['かったら', ['い']], ['ったら', ['う', 'つ', 'る']], ['いたら', ['く']], ['いだら', ['ぐ']],
-  ['んだら', ['ぬ', 'ぶ', 'む']], ['したら', ['す', 'する']], ['だら', ['で']], ['たら', ['る']],
-  ['た', ['る']], ['て', ['る']],
+  ['かったら', ['い'], 'conditional (-tara)'], ['ったら', ['う', 'つ', 'る'], 'conditional (-tara)'],
+  ['いたら', ['く'], 'conditional (-tara)'], ['いだら', ['ぐ'], 'conditional (-tara)'],
+  ['んだら', ['ぬ', 'ぶ', 'む'], 'conditional (-tara)'], ['したら', ['す', 'する'], 'conditional (-tara)'],
+  ['だら', ['で'], 'conditional (-tara)'], ['たら', ['る'], 'conditional (-tara)'],
+  ['た', ['る'], 'past'], ['て', ['る'], 'te-form'],
 ];
 
 // Suppletive/irregular full forms that the suffix rules can't reach (empty stem).
@@ -535,37 +556,45 @@ function zhxFamily(kanji, exclude, limit) {
 
 function zhxDeinflect(word) {
   const seen = new Set([word]);
-  const queue = [word];
-  const out = [word];
-  if (ZHX_IRREGULAR[word]) out.push(ZHX_IRREGULAR[word]);
+  const queue = [{ w: word, path: [] }];
+  const out = [{ w: word, path: [] }];
+  if (ZHX_IRREGULAR[word]) out.push({ w: ZHX_IRREGULAR[word], path: ['inflected form'] });
   for (let depth = 0; depth < 5 && queue.length; depth++) {
     const level = queue.splice(0, queue.length);
-    for (const w of level) {
-      const push = (cand) => {
+    for (const { w, path } of level) {
+      const push = (cand, label) => {
         if (cand && !seen.has(cand)) {
           seen.add(cand);
-          queue.push(cand);
-          out.push(cand);
+          const next = { w: cand, path: label ? [...path, label] : path };
+          queue.push(next);
+          out.push(next);
         }
       };
-      for (const [suffix, bases] of ZHX_DEINFLECT) {
+      for (const [suffix, bases, label] of ZHX_DEINFLECT) {
         if (w.length > suffix.length && w.endsWith(suffix)) {
-          for (const base of bases) push(w.slice(0, -suffix.length) + base);
+          for (const base of bases) push(w.slice(0, -suffix.length) + base, label);
         }
       }
-      if (w.length > 2 && w.endsWith('する')) push(w.slice(0, -2));
+      if (w.length > 2 && w.endsWith('する')) push(w.slice(0, -2), null);
       // Masu-stem of a する-verb (勉強し → 勉強). Guard against stripping the て-form's
       // し (食べてし…) by requiring the char before し to be a kanji.
-      if (w.length > 2 && w.endsWith('し') && ZHX_KANJI_RE.test(w[w.length - 2])) push(w.slice(0, -1));
+      if (w.length > 2 && w.endsWith('し') && ZHX_KANJI_RE.test(w[w.length - 2])) push(w.slice(0, -1), null);
     }
   }
   return out;
 }
 
 function zhxLookupDeinflected(surface) {
-  for (const cand of zhxDeinflect(surface)) {
+  for (const { w: cand, path } of zhxDeinflect(surface)) {
     const entries = zhxIndex.get(cand);
-    if (entries) return { matched: cand, entries: zhxBest(entries, cand) };
+    if (!entries) continue;
+    // The strip order is outermost-first (…た before …られる); reverse it so the label
+    // reads in application order from the lemma out: causative + passive + past. Labels
+    // subsumed by a more specific one on the same path are dropped (行きました peels both
+    // "polite past" and "polite" — the former already says it).
+    const labels = [...path].reverse().filter((l, i, a) =>
+      a.indexOf(l) === i && !a.some((o) => o !== l && o.includes(l)));
+    return { matched: cand, entries: zhxBest(entries, cand), gram: labels.length ? labels.join(' + ') : null };
   }
   return null;
 }
@@ -727,6 +756,7 @@ async function zhxHandle(msg) {
       found: true,
       word: msg.word,
       base: hit && hit.matched !== msg.word ? hit.matched : undefined,
+      gram: hit && hit.gram && hit.matched !== msg.word ? { f: hit.gram, l: hit.matched } : undefined,
       hsk: 0,
       common: entries.some((e) => e.common),
       entries,
@@ -1565,6 +1595,19 @@ function zhxLookupWord(word) {
   return null;
 }
 
+// Reduplication note (Malay 词-doubling carries meaning): kanak-kanak = plural,
+// sayur-sayuran = variety, tolong-menolong = reciprocal.
+function zhxRedup(word) {
+  const hy = word.indexOf('-');
+  if (hy <= 0) return undefined;
+  const a = word.slice(0, hy).toLowerCase();
+  const b = word.slice(hy + 1).toLowerCase();
+  if (a === b) return 'reduplication — plural or repetition of "' + a + '"';
+  if (b === a + 'an' || b === a + 'kan') return 'reduplication — variety/collective of "' + a + '"';
+  if (/^(me|men|mem|meng|meny)/.test(b) && b.length > 3) return 'reduplication — reciprocal (doing "' + a + '" to one another)';
+  return undefined;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
@@ -1578,21 +1621,61 @@ function zhxTokenize(text) {
   return tokens;
 }
 
+const ZHX_FEAT_RE = /(first|second|third)-person|\b(singular|plural|future|present|past|imperfect|preterite|imperative|subjunctive|conditional|indicative|participle|gerund|infinitive|inflection|feminine|masculine|neuter|comparative|superlative)\b/;
+function zhxGrammar(list) {
+  for (const e of list) {
+    const g = e.g ?? '';
+    const m = g.match(/^(?:\(([^)]+)\)\s*)?(.{2,60}?)\s+of\s+([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?$/);
+    if (!m || !ZHX_FEAT_RE.test(m[2])) continue;
+    return { f: m[2], l: m[3], g: m[4] ? (m[1] ? '(' + m[1] + ') ' : '') + m[4] : null, src: g };
+  }
+  return null;
+}
+
+const ZHX_COMPOUND = {
+  aux: { ai: 'present', as: 'present', a: 'present', avons: 'present', avez: 'present', ont: 'present', aurai: 'future', auras: 'future', aura: 'future', aurons: 'future', aurez: 'future', auront: 'future', avais: 'imperfect', avait: 'imperfect', avions: 'imperfect', aviez: 'imperfect', avaient: 'imperfect', aurais: 'conditional', aurait: 'conditional', aurions: 'conditional', auriez: 'conditional', auraient: 'conditional', suis: 'present', es: 'present', est: 'present', sommes: 'present', 'êtes': 'present', sont: 'present', serai: 'future', seras: 'future', sera: 'future', serons: 'future', serez: 'future', seront: 'future', 'étais': 'imperfect', 'était': 'imperfect', 'étions': 'imperfect', 'étiez': 'imperfect', 'étaient': 'imperfect', serais: 'conditional', serait: 'conditional', serions: 'conditional', seriez: 'conditional', seraient: 'conditional' },
+  names: { present: 'passé composé (perfect)', future: 'futur antérieur (future perfect)', imperfect: 'plus-que-parfait (pluperfect)', conditional: 'conditionnel passé (conditional perfect)' }
+};
+function zhxCompound(phrase) {
+  const parts = phrase.toLowerCase().split(/\s+/);
+  if (parts.length !== 2) return null;
+  for (const [a, b] of [[parts[0], parts[1]], [parts[1], parts[0]]]) {
+    const tense = ZHX_COMPOUND.aux[a.replace(/^[jcdlmnst][''\u2019]/, '')];
+    if (!tense) continue;
+    for (const e of (zhxIndex.get(b) ?? [])) {
+      const m = (e.g ?? '').match(/past participle of ([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?/);
+      if (m) return { f: ZHX_COMPOUND.names[tense], l: m[1], g: m[2] || null };
+    }
+  }
+  return null;
+}
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
     const hit = zhxLookupWord(msg.word);
     if (!hit) {
+      const comp = zhxCompound(msg.word);
+      if (comp) {
+        const lemmaList = zhxIndex.get(comp.l.toLowerCase()) ?? zhxIndex.get(comp.l);
+        const ldefs = lemmaList ? zhxRankList(lemmaList).map((e) => e.g).slice(0, 8) : (comp.g ? [comp.g] : []);
+        return { found: true, word: msg.word, base: comp.l, gram: { f: comp.f, l: comp.l }, hsk: 0, entries: [{ s: comp.l, t: comp.l, p: (lemmaList ?? [])[0]?.x || null, defs: ldefs }], chars: [] };
+      }
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = zhxGrammar(list);
+    let defs = list.map((e) => e.g).slice(0, 8);
+    if (gram) defs = gram.g ? defs.map((d) => (d === gram.src ? gram.g : d)) : (defs.length > 1 ? defs.filter((d) => d !== gram.src) : defs);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
+      redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || zhxTranslit(list[0].w), defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs }],
       chars: [],
     };
   }
@@ -1680,6 +1763,19 @@ function zhxLookupWord(word) {
   return null;
 }
 
+// Reduplication note (Malay 词-doubling carries meaning): kanak-kanak = plural,
+// sayur-sayuran = variety, tolong-menolong = reciprocal.
+function zhxRedup(word) {
+  const hy = word.indexOf('-');
+  if (hy <= 0) return undefined;
+  const a = word.slice(0, hy).toLowerCase();
+  const b = word.slice(hy + 1).toLowerCase();
+  if (a === b) return 'reduplication — plural or repetition of "' + a + '"';
+  if (b === a + 'an' || b === a + 'kan') return 'reduplication — variety/collective of "' + a + '"';
+  if (/^(me|men|mem|meng|meny)/.test(b) && b.length > 3) return 'reduplication — reciprocal (doing "' + a + '" to one another)';
+  return undefined;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
@@ -1693,21 +1789,61 @@ function zhxTokenize(text) {
   return tokens;
 }
 
+const ZHX_FEAT_RE = /(first|second|third)-person|\b(singular|plural|future|present|past|imperfect|preterite|imperative|subjunctive|conditional|indicative|participle|gerund|infinitive|inflection|feminine|masculine|neuter|comparative|superlative)\b/;
+function zhxGrammar(list) {
+  for (const e of list) {
+    const g = e.g ?? '';
+    const m = g.match(/^(?:\(([^)]+)\)\s*)?(.{2,60}?)\s+of\s+([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?$/);
+    if (!m || !ZHX_FEAT_RE.test(m[2])) continue;
+    return { f: m[2], l: m[3], g: m[4] ? (m[1] ? '(' + m[1] + ') ' : '') + m[4] : null, src: g };
+  }
+  return null;
+}
+
+const ZHX_COMPOUND = {
+  aux: { habe: 'present', hast: 'present', hat: 'present', haben: 'present', habt: 'present', hatte: 'preterite', hattest: 'preterite', hatten: 'preterite', hattet: 'preterite', bin: 'present', bist: 'present', ist: 'present', sind: 'present', seid: 'present', war: 'preterite', warst: 'preterite', waren: 'preterite', wart: 'preterite' },
+  names: { present: 'Perfekt (perfect)', preterite: 'Plusquamperfekt (pluperfect)' }
+};
+function zhxCompound(phrase) {
+  const parts = phrase.toLowerCase().split(/\s+/);
+  if (parts.length !== 2) return null;
+  for (const [a, b] of [[parts[0], parts[1]], [parts[1], parts[0]]]) {
+    const tense = ZHX_COMPOUND.aux[a.replace(/^[jcdlmnst][''\u2019]/, '')];
+    if (!tense) continue;
+    for (const e of (zhxIndex.get(b) ?? [])) {
+      const m = (e.g ?? '').match(/past participle of ([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?/);
+      if (m) return { f: ZHX_COMPOUND.names[tense], l: m[1], g: m[2] || null };
+    }
+  }
+  return null;
+}
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
     const hit = zhxLookupWord(msg.word);
     if (!hit) {
+      const comp = zhxCompound(msg.word);
+      if (comp) {
+        const lemmaList = zhxIndex.get(comp.l.toLowerCase()) ?? zhxIndex.get(comp.l);
+        const ldefs = lemmaList ? zhxRankList(lemmaList).map((e) => e.g).slice(0, 8) : (comp.g ? [comp.g] : []);
+        return { found: true, word: msg.word, base: comp.l, gram: { f: comp.f, l: comp.l }, hsk: 0, entries: [{ s: comp.l, t: comp.l, p: (lemmaList ?? [])[0]?.x || null, defs: ldefs }], chars: [] };
+      }
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = zhxGrammar(list);
+    let defs = list.map((e) => e.g).slice(0, 8);
+    if (gram) defs = gram.g ? defs.map((d) => (d === gram.src ? gram.g : d)) : (defs.length > 1 ? defs.filter((d) => d !== gram.src) : defs);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
+      redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || zhxTranslit(list[0].w), defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs }],
       chars: [],
     };
   }
@@ -1795,6 +1931,19 @@ function zhxLookupWord(word) {
   return null;
 }
 
+// Reduplication note (Malay 词-doubling carries meaning): kanak-kanak = plural,
+// sayur-sayuran = variety, tolong-menolong = reciprocal.
+function zhxRedup(word) {
+  const hy = word.indexOf('-');
+  if (hy <= 0) return undefined;
+  const a = word.slice(0, hy).toLowerCase();
+  const b = word.slice(hy + 1).toLowerCase();
+  if (a === b) return 'reduplication — plural or repetition of "' + a + '"';
+  if (b === a + 'an' || b === a + 'kan') return 'reduplication — variety/collective of "' + a + '"';
+  if (/^(me|men|mem|meng|meny)/.test(b) && b.length > 3) return 'reduplication — reciprocal (doing "' + a + '" to one another)';
+  return undefined;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
@@ -1808,21 +1957,61 @@ function zhxTokenize(text) {
   return tokens;
 }
 
+const ZHX_FEAT_RE = /(first|second|third)-person|\b(singular|plural|future|present|past|imperfect|preterite|imperative|subjunctive|conditional|indicative|participle|gerund|infinitive|inflection|feminine|masculine|neuter|comparative|superlative)\b/;
+function zhxGrammar(list) {
+  for (const e of list) {
+    const g = e.g ?? '';
+    const m = g.match(/^(?:\(([^)]+)\)\s*)?(.{2,60}?)\s+of\s+([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?$/);
+    if (!m || !ZHX_FEAT_RE.test(m[2])) continue;
+    return { f: m[2], l: m[3], g: m[4] ? (m[1] ? '(' + m[1] + ') ' : '') + m[4] : null, src: g };
+  }
+  return null;
+}
+
+const ZHX_COMPOUND = {
+  aux: { he: 'present', has: 'present', ha: 'present', hemos: 'present', 'habéis': 'present', han: 'present', 'habré': 'future', 'habrás': 'future', 'habrá': 'future', habremos: 'future', 'habréis': 'future', 'habrán': 'future', 'había': 'imperfect', 'habías': 'imperfect', 'habíamos': 'imperfect', 'habíais': 'imperfect', 'habían': 'imperfect', 'habría': 'conditional', 'habrías': 'conditional', 'habríamos': 'conditional', 'habríais': 'conditional', 'habrían': 'conditional', hube: 'preterite', hubiste: 'preterite', hubo: 'preterite', hubimos: 'preterite', hubisteis: 'preterite', hubieron: 'preterite' },
+  names: { present: 'pretérito perfecto (present perfect)', future: 'futuro perfecto (future perfect)', imperfect: 'pluscuamperfecto (pluperfect)', conditional: 'condicional perfecto (conditional perfect)', preterite: 'pretérito anterior (past anterior)' }
+};
+function zhxCompound(phrase) {
+  const parts = phrase.toLowerCase().split(/\s+/);
+  if (parts.length !== 2) return null;
+  for (const [a, b] of [[parts[0], parts[1]], [parts[1], parts[0]]]) {
+    const tense = ZHX_COMPOUND.aux[a.replace(/^[jcdlmnst][''\u2019]/, '')];
+    if (!tense) continue;
+    for (const e of (zhxIndex.get(b) ?? [])) {
+      const m = (e.g ?? '').match(/past participle of ([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?/);
+      if (m) return { f: ZHX_COMPOUND.names[tense], l: m[1], g: m[2] || null };
+    }
+  }
+  return null;
+}
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
     const hit = zhxLookupWord(msg.word);
     if (!hit) {
+      const comp = zhxCompound(msg.word);
+      if (comp) {
+        const lemmaList = zhxIndex.get(comp.l.toLowerCase()) ?? zhxIndex.get(comp.l);
+        const ldefs = lemmaList ? zhxRankList(lemmaList).map((e) => e.g).slice(0, 8) : (comp.g ? [comp.g] : []);
+        return { found: true, word: msg.word, base: comp.l, gram: { f: comp.f, l: comp.l }, hsk: 0, entries: [{ s: comp.l, t: comp.l, p: (lemmaList ?? [])[0]?.x || null, defs: ldefs }], chars: [] };
+      }
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = zhxGrammar(list);
+    let defs = list.map((e) => e.g).slice(0, 8);
+    if (gram) defs = gram.g ? defs.map((d) => (d === gram.src ? gram.g : d)) : (defs.length > 1 ? defs.filter((d) => d !== gram.src) : defs);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
+      redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || zhxTranslit(list[0].w), defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs }],
       chars: [],
     };
   }
@@ -1974,6 +2163,18 @@ function zhxTokenize(text) {
   return tokens;
 }
 
+const ZHX_FEAT_RE = /(first|second|third)-person|\b(singular|plural|future|present|past|imperfect|preterite|imperative|subjunctive|conditional|indicative|participle|gerund|infinitive|inflection|feminine|masculine|neuter|comparative|superlative)\b/;
+function zhxGrammar(list) {
+  for (const e of list) {
+    const g = e.g ?? '';
+    const m = g.match(/^(?:\(([^)]+)\)\s*)?(.{2,60}?)\s+of\s+([^\s\u2014;,:]+)\s*(?:\u2014\s*(.+))?$/);
+    if (!m || !ZHX_FEAT_RE.test(m[2])) continue;
+    return { f: m[2], l: m[3], g: m[4] ? (m[1] ? '(' + m[1] + ') ' : '') + m[4] : null, src: g };
+  }
+  return null;
+}
+
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
@@ -1982,14 +2183,18 @@ async function zhxHandle(msg) {
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = zhxGrammar(list);
+    let defs = list.map((e) => e.g).slice(0, 8);
+    if (gram) defs = gram.g ? defs.map((d) => (d === gram.src ? gram.g : d)) : (defs.length > 1 ? defs.filter((d) => d !== gram.src) : defs);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
       redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || zhxTranslit(list[0].w), defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs }],
       chars: [],
     };
   }
