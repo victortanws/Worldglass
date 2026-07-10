@@ -47,8 +47,43 @@
   let sx = 0;
   let sy = 0;
 
+  // Real, selectable text under the snip box. The snip isn't only for images: dragging a
+  // box over ordinary page text reads it directly — instant, exact, and immune to OCR
+  // failures. Characters are included when their box centre falls inside the selection.
+  function domTextIn(rect) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    const range = document.createRange();
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!n.nodeValue.trim()) continue;
+      const el = n.parentElement;
+      if (!el) continue;
+      const tag = el.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'RT' || tag === 'RP') continue;
+      range.selectNodeContents(n);
+      const nb = range.getBoundingClientRect();
+      if (!nb.width || nb.right < rect.left || nb.left > rect.right || nb.bottom < rect.top || nb.top > rect.bottom) continue;
+      let piece = '';
+      for (let i = 0; i < n.nodeValue.length; i++) {
+        range.setStart(n, i);
+        range.setEnd(n, i + 1);
+        const cb = range.getBoundingClientRect();
+        const cx = cb.left + cb.width / 2;
+        const cy = cb.top + cb.height / 2;
+        if (cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom) piece += n.nodeValue[i];
+        else if (piece && !piece.endsWith(' ')) piece += ' ';
+      }
+      if (piece.trim()) parts.push(piece.trim());
+    }
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  }
+
   function startSnip() {
     if (overlay) return;
+    // Warm the OCR engine while the user drags — the wasm + model load takes seconds cold,
+    // so recognition should be ready the moment the box is released.
+    const guess = OCR.pickLang({ width: 2, height: 1 });
+    chrome.runtime.sendMessage({ type: 'ocrWarm', lang: guess.lang }).catch(() => {});
     overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:crosshair;background:rgba(0,0,0,0.08);';
     hint = document.createElement('div');
@@ -187,8 +222,17 @@
     rect.bottom = rect.top + rect.height;
     if (rect.width < 12 || rect.height < 12) { endSnip(); return; }
     busy = true;
-    hint.textContent = 'Recognizing…';
+    hint.textContent = 'Reading…';
     try {
+      // Real DOM text under the box wins: instant and exact. OCR only runs when the
+      // region holds no selectable text (an image, canvas, or video frame).
+      const domText = domTextIn(rect);
+      if (domText.length >= 2) {
+        endSnip();
+        window.dispatchEvent(new CustomEvent(OCR.eventName, { detail: { text: domText, rect } }));
+        return;
+      }
+      hint.textContent = 'Recognizing…';
       const image = await cropRegion(rect);
       const text = await recognize(image, rect);
       endSnip();
@@ -197,8 +241,8 @@
       }
     } catch (err) {
       if (hint) {
-        hint.textContent = `OCR failed: ${err.message}`;
-        setTimeout(endSnip, 1800);
+        hint.textContent = `Couldn't read that area (${err.message}). Real page text still works — try dragging over the text itself.`;
+        setTimeout(endSnip, 3000);
       }
     }
   }

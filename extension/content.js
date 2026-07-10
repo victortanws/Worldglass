@@ -6,6 +6,9 @@
 
   const HAN_RE = /[㐀-䶿一-鿿豈-﫿]/;
   const MAX_SELECTION = 300;
+  // Selection popups work in every frame; page-wide chrome (the floating OCR button,
+  // whole-page annotation) belongs to the top frame only.
+  const IS_TOP = window === window.top;
 
   // Per-language display/behaviour metadata. The dictionary logic lives in the
   // worker; this only drives TTS voice, translation source, OCR model, text
@@ -295,16 +298,22 @@
     return a;
   }
   // Small muted footer shown once per top-level popup (never on nested lookups).
-  function footerNode() {
+  function footerNode(word) {
     const f = document.createElement('div');
     f.className = 'zhx-footer';
     const cr = document.createElement('div');
     cr.append('Created by ', creditLink(CREDIT.site, CREDIT.name), ` · ${CREDIT.year}`);
     const row = document.createElement('div');
     row.className = 'row';
+    const report = creditLink(
+      `https://github.com/victortanws/Worldglass/issues/new?title=${encodeURIComponent(`[entry] ${word ?? ''} (${currentLang})`)}`,
+      'Report an entry',
+    );
+    report.title = 'Wrong or missing definition? Open an issue — one click.';
     row.append(
       creditLink(CREDIT.site, 'My Website'),
       creditLink(CREDIT.youtube, 'YouTube'),
+      report,
       creditLink(CREDIT.coffee, 'Enjoying Worldglass? Buy me a coffee ☕', 'sup'),
     );
     f.append(cr, row);
@@ -728,7 +737,7 @@
     }
 
     pop.appendChild(body);
-    if (pop.dataset.level === '1') pop.appendChild(footerNode()); // pinned below the scroll area
+    if (pop.dataset.level === '1') pop.appendChild(footerNode(word)); // pinned below the scroll area
   }
 
   async function openEntry(level, word, getRect) {
@@ -800,11 +809,28 @@
     ensureUI();
     selState = { text, getRect, truncated };
     const seq = ++renderSeq;
+    // Slim builds download the biggest dictionaries on first use. If the first response
+    // is slow, explain the wait instead of showing nothing.
+    const placeholder = setTimeout(async () => {
+      const st = await chrome.runtime.sendMessage({ type: 'packStatus', lang: currentLang }).catch(() => null);
+      if (seq !== renderSeq || st?.state === 'bundled' || st?.state === 'cached') return;
+      closePopup(1);
+      const pp = pop1 = makePopup(1);
+      pp.dataset.kind = 'sel';
+      const b = document.createElement('div');
+      b.className = 'body';
+      b.textContent = st?.state === 'downloading'
+        ? `Downloading the ${meta().name} language pack \u2014 one time, stored on your device\u2026`
+        : `Loading the ${meta().name} dictionary\u2026`;
+      pp.appendChild(b);
+      place(pp, getRect);
+    }, 600);
     // Whole-selection lookup catches multi-word entries (idioms, proverbs, place
     // names). Try the space-normalized phrase first \u2014 space-delimited languages index
     // multi-word headwords WITH spaces \u2014 then the space-stripped form for CJK. Skip
     // when the selection spans a clause boundary (punctuation) or is sentence-length.
     const { tokens, mixed, langs } = await segmentSelection(text);
+    clearTimeout(placeholder);
     if (seq !== renderSeq) return;
     const normalized = text.trim().replace(/\s+/g, ' ');
     const wholeForms = [...new Set([normalized, normalized.replace(/\s+/g, '')])];
@@ -897,6 +923,7 @@
   let fab = null;
   let fabOn = true;
   function ensureFab() {
+    if (!IS_TOP) return;
     if (!fabOn) { if (fab) fab.style.display = 'none'; return; }
     ensureUI();
     if (fab) { fab.style.display = ''; return; }
@@ -1274,7 +1301,7 @@
     }
     document.documentElement.classList.toggle('zhx-py', !!cfg.zhxPinyin);
     document.documentElement.classList.toggle('zhx-bd', !!cfg.zhxBounds);
-    if (cfg.zhxPinyin || cfg.zhxBounds) annotatePage().then(reapplyKnown);
+    if (IS_TOP && (cfg.zhxPinyin || cfg.zhxBounds)) annotatePage().then(reapplyKnown);
     else revertAnnotation();
   }
 

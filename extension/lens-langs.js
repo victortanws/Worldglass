@@ -98,10 +98,10 @@ function zhxReadingFor(mode, numberedPinyin, ...wordForms) {
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
     const [res, hskRes, readRes, cantoRes] = await Promise.all([
-      fetch(chrome.runtime.getURL('dict/zh/cedict.json')),
-      fetch(chrome.runtime.getURL('dict/zh/hsk.json')).catch(() => null),
-      fetch(chrome.runtime.getURL('dict/zh/readings.json')).catch(() => null),
-      fetch(chrome.runtime.getURL('dict/zh/canto.json')).catch(() => null),
+      self.LENS.fetchData("zh", "cedict.json"),
+      self.LENS.fetchData("zh", "hsk.json").catch(() => null),
+      self.LENS.fetchData("zh", "readings.json").catch(() => null),
+      self.LENS.fetchData("zh", "canto.json").catch(() => null),
     ]);
     zhxHsk = hskRes && hskRes.ok ? await hskRes.json() : {};
     zhxReadings = readRes && readRes.ok ? await readRes.json() : {};
@@ -169,11 +169,23 @@ function zhxPickEntry(word, entries) {
 let zhxCharWords = null;
 const ZHX_HAN_ONLY = /^[㐀-䶿一-鿿々]+$/;
 
+let zhxCharVariant = null;
 function zhxBuildCharIndex() {
   if (zhxCharWords) return;
   zhxCharWords = new Map();
-  for (const word of zhxIndex.keys()) {
-    if (word.length < 2 || word.length > 4 || !ZHX_HAN_ONLY.test(word)) continue;
+  zhxCharVariant = new Map();
+  for (const [word, entries] of zhxIndex) {
+    if (word.length === 1) {
+      // Character-level simp↔trad twins (瞭 ↔ 了), so a family can union both scripts.
+      for (const e of entries) {
+        if (e.s.length === 1 && e.t.length === 1 && e.s !== e.t) {
+          zhxCharVariant.set(e.s, e.t);
+          zhxCharVariant.set(e.t, e.s);
+        }
+      }
+      continue;
+    }
+    if (word.length > 4 || !ZHX_HAN_ONLY.test(word)) continue;
     for (const ch of new Set(word)) {
       let list = zhxCharWords.get(ch);
       if (!list) { list = []; zhxCharWords.set(ch, list); }
@@ -184,11 +196,24 @@ function zhxBuildCharIndex() {
 
 function zhxFamily(ch, exclude, mode, limit) {
   zhxBuildCharIndex();
-  const words = [...new Set(zhxCharWords.get(ch) ?? [])]
-    .filter((w) => w !== exclude)
-    .sort((a, b) => (zhxHsk[a] ?? 99) - (zhxHsk[b] ?? 99) || a.length - b.length)
-    .slice(0, limit ?? 10);
-  return words.map((w) => {
+  // Union the twin script's family — the character is one morpheme in two scripts, so
+  // 瞭's family includes 了解. Words that are s/t spellings of the same entry share the
+  // entry object; keep the first-seen form (the queried script comes first).
+  const variant = zhxCharVariant.get(ch);
+  const seenEntries = new Set();
+  const words = [];
+  for (const w of [...(zhxCharWords.get(ch) ?? []), ...(variant ? (zhxCharWords.get(variant) ?? []) : [])]) {
+    if (w === exclude || w === ch || w === variant) continue;
+    const entry = zhxPickEntry(w, zhxIndex.get(w));
+    // CEDICT sometimes lists s/t spellings as separate rows, so dedupe by simplified
+    // form + pinyin rather than object identity (瞭解 and 了解 are one word).
+    const key = entry.s + '' + entry.p.toLowerCase();
+    if (seenEntries.has(key)) continue;
+    seenEntries.add(key);
+    words.push(w);
+  }
+  words.sort((a, b) => (zhxHsk[a] ?? 99) - (zhxHsk[b] ?? 99) || a.length - b.length);
+  return words.slice(0, limit ?? 10).map((w) => {
     const entry = zhxPickEntry(w, zhxIndex.get(w));
     const gloss = entry.d.find((d) => !/^CL:/.test(d)) ?? entry.d[0] ?? '';
     return { w, p: zhxReadingFor(mode, entry.p, w, entry.s, entry.t), g: gloss, h: zhxHsk[w] ?? 0 };
@@ -372,7 +397,7 @@ async function zhxHandle(msg) {
     return msg.texts.map((t) => zhxTokenize(t, msg.reading));
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/zh/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("zh", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -474,7 +499,7 @@ let zhxSegmenter = null;
 let zhxNamesPromise = null;
 
 function zhxEnsureNames() {
-  zhxNamesPromise ??= fetch(chrome.runtime.getURL('dict/ja/names.json'))
+  zhxNamesPromise ??= self.LENS.fetchData("ja", "names.json")
     .then((r) => r.json())
     .then((rows) => {
       const idx = new Map();
@@ -492,8 +517,8 @@ function zhxEnsureNames() {
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
     const [dictRes, kanjiRes] = await Promise.all([
-      fetch(chrome.runtime.getURL('dict/ja/jdict.json')),
-      fetch(chrome.runtime.getURL('dict/ja/kanji.json')).catch(() => null),
+      self.LENS.fetchData("ja", "jdict.json"),
+      self.LENS.fetchData("ja", "kanji.json").catch(() => null),
     ]);
     const rows = await dictRes.json();
     zhxKanji = kanjiRes && kanjiRes.ok ? await kanjiRes.json() : {};
@@ -770,7 +795,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/ja/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("ja", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -942,6 +967,17 @@ function zhxCandidates(word) {
     }
     if (w.endsWith('니다')) { const st = zhxStripFinalB(w.slice(0, -2)); if (st) out.add(st + '다'); }
     for (const c of zhxIrregularStems(w)) out.add(c);
+    // Fused past marker: ㅆ as a syllable final is 았/었 contracted in (갔다 → 가다,
+    // 배웠어요 → 배우…). Strip it — undoing the vowel contraction where one happened —
+    // and let the normal pipeline continue.
+    const SSANG = { 웠: '우', 왔: '오', 했: '하', 됐: '되', 냈: '내', 뗐: '떼', 셨: '시', 쐈: '쏘', 줬: '주', 봤: '보', 탔: '타', 쌌: '싸' };
+    for (let i = Math.max(0, w.length - 3); i < w.length; i++) {
+      const d = zhxDecompose(w[i]);
+      if (d && d.final === 'ㅆ') {
+        const repl = SSANG[w[i]] ?? zhxSetFinal(w[i], '');
+        if (repl) enqueue(w.slice(0, i) + repl + w.slice(i + 1));
+      }
+    }
   }
   if (word.length > 2) out.add(word.slice(0, -1));
   return [...out];
@@ -953,7 +989,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const res = await fetch(chrome.runtime.getURL('dict/ko/kodict.json'));
+    const res = await self.LENS.fetchData("ko", "kodict.json");
     const rows = await res.json();
     zhxIndex = new Map();
     for (const [word, hanja, gloss] of rows) {
@@ -965,10 +1001,42 @@ function zhxEnsureDict() {
   return zhxDictPromise;
 }
 
+// Name the ending on the surface form (longest match first). The candidate search itself
+// is pathless, so labels come from what the user actually selected; when no listed ending
+// matches, the label is omitted rather than guessed.
+const ZHX_ENDING_LABELS = [
+  ['셨습니다', 'honorific formal past'], ['었습니다', 'formal polite past'], ['았습니다', 'formal polite past'],
+  ['였습니다', 'formal polite past'], ['겠습니다', 'formal polite future/intent'], ['습니까', 'formal polite question'],
+  ['습니다', 'formal polite'], ['입니다', 'copula, formal polite'],
+  ['셨어요', 'honorific polite past'], ['세요', 'honorific polite'],
+  ['었어요', 'polite past'], ['았어요', 'polite past'], ['였어요', 'polite past'],
+  ['겠어요', 'polite future/conjecture'], ['합니다', 'formal polite (하다)'], ['해요', 'polite (하다)'],
+  ['어요', 'polite'], ['아요', 'polite'], ['여요', 'polite'],
+  ['었다', 'past'], ['았다', 'past'], ['였다', 'past'], ['겠다', 'future/conjecture'],
+  ['을까요', 'suggestion/question (-을까요)'], ['네요', 'mild exclamation (-네요)'], ['나요', 'soft question (-나요)'],
+  ['니까', 'causal (-니까)'], ['면서', 'simultaneous (-면서)'], ['지만', 'contrast ("but")'],
+  ['는데', 'background (-는데)'], ['어서', 'sequence/cause (-어서)'], ['아서', 'sequence/cause (-아서)'],
+  ['으면', 'conditional'], ['면', 'conditional'], ['고', 'connective ("and")'],
+];
+function zhxEndingLabel(word) {
+  // Contracted past first: the past marker fuses into the previous syllable as a ㅆ final
+  // (가+았+다 → 갔다, 배우+었+어요 → 배웠어요), so string suffixes alone would mislabel.
+  for (const [tail, label] of [['습니다', 'formal polite past'], ['어요', 'polite past'], ['는데', 'past background (-는데)'], ['지만', 'past contrast ("but")'], ['고', 'past connective'], ['다', 'past']]) {
+    if (word.length > tail.length && word.endsWith(tail)) {
+      const d = zhxDecompose(word[word.length - tail.length - 1]);
+      if (d && d.final === 'ㅆ') return label;
+    }
+  }
+  for (const [tail, label] of ZHX_ENDING_LABELS) {
+    if (word.length > tail.length && word.endsWith(tail)) return label;
+  }
+  return null;
+}
+
 function zhxLookupStem(word) {
   for (const cand of zhxCandidates(word)) {
     const entries = zhxIndex.get(cand);
-    if (entries) return { matched: cand, entries };
+    if (entries) return { matched: cand, entries, gram: cand !== word ? zhxEndingLabel(word) : null };
   }
   return null;
 }
@@ -1042,6 +1110,7 @@ async function zhxHandle(msg) {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word ? hit.matched : undefined,
+      gram: hit.gram ? { f: hit.gram, l: hit.matched } : undefined,
       hsk: 0,
       entries: [{
         s: hit.matched,
@@ -1059,7 +1128,7 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'family') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/ko/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("ko", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1070,7 +1139,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/ko/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("ko", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1144,7 +1213,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/ar/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("ar", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1231,7 +1300,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/ar/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("ar", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1270,7 +1339,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/jawi/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("jawi", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1334,22 +1403,61 @@ function zhxTokenize(text) {
   return tokens;
 }
 
+
+
+const ZHX_RUMI_UNITS = /ng|ny|sh|kh|gh|dh|th|[a-z]/g;
+function zhxRumiCandidates(word) {
+  const skel = zhxTranslit(zhxBare(word)).replace(/[^a-z]/g, '');
+  if (!skel || skel.length > 12) return [];
+  const units = skel.match(ZHX_RUMI_UNITS) ?? [];
+  const isVowel = (u) => /^[aeiou]/.test(u);
+  let cands = [''];
+  for (let i = 0; i < units.length; i++) {
+    const gap = units[i + 1] !== undefined && !isVowel(units[i]) && !isVowel(units[i + 1]);
+    const grown = [];
+    for (const c of cands) for (const v of (gap ? ['', 'e', 'a'] : [''])) grown.push(c + units[i] + v);
+    cands = grown;
+    if (cands.length > 400) return [];
+  }
+  const out = new Set();
+  for (const c of cands) {
+    out.add(c);
+    if (!/[aeiou]$/.test(c)) { out.add(c + 'a'); out.add(c + 'i'); }
+  }
+  return [...out];
+}
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
     const hit = zhxLookupWord(msg.word);
     if (!hit) {
+      const msMod = self.LENS && self.LENS.get && self.LENS.get('ms');
+      if (msMod) {
+        for (const cand of zhxRumiCandidates(msg.word)) {
+          if (cand.length < 2) continue; // single letters hit alphabet entries ("the fourth letter")
+          const r = await msMod.handle({ type: 'lookup', word: cand, lang: 'ms' });
+          if (r && r.found && /^\(character\)/.test(r.entries[0]?.defs?.[0] ?? '')) continue;
+          if (r && r.found && !r.tentative) {
+            return { found: true, word: msg.word, base: cand, tentative: true, gram: r.gram, hsk: 0,
+              entries: r.entries.map((e) => ({ s: msg.word, t: msg.word, p: cand, defs: e.defs })), chars: [] };
+          }
+        }
+      }
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = null;
+    const defs = list.map((e) => e.g).slice(0, 8);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
       redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].w, defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].w, defs }],
       chars: [],
     };
   }
@@ -1357,7 +1465,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/jawi/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("jawi", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1428,7 +1536,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/he/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("he", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1515,7 +1623,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/he/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("he", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1557,7 +1665,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/fr/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("fr", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1683,7 +1791,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/fr/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("fr", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1725,7 +1833,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/de/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("de", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1851,7 +1959,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/de/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("de", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1893,7 +2001,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/es/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("es", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -2019,7 +2127,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/es/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("es", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -2099,7 +2207,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await fetch(chrome.runtime.getURL('dict/ms/dict.json'))).json();
+    const rows = await (await self.LENS.fetchData("ms", "dict.json")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -2202,7 +2310,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= fetch(chrome.runtime.getURL('dict/ms/sentences.json'))
+    zhxSentPromise ??= self.LENS.fetchData("ms", "sentences.json")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;

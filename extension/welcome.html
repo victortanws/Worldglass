@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Welcome to Worldglass</title>
+<style>
+  :root { --bg:#eceef1; --panel:#fff; --text:#1b2027; --muted:#5e6672; --border:#dde2e8; --accent:#2f6395; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1319; --panel:#171c23; --text:#e7ebf1; --muted:#97a1af; --border:#29313c; --accent:#6fa6da; }
+  }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:640px; margin:0 auto; padding:48px 24px 64px; }
+  h1 { font-size:32px; margin:0 0 4px; } h1 .g { color:var(--accent); }
+  .sub { color:var(--muted); margin:0 0 30px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:18px 20px; margin-bottom:14px; }
+  .card h2 { font-size:17px; margin:0 0 6px; } .card h2 .n { color:var(--accent); margin-right:8px; }
+  .card p { margin:0; color:var(--muted); font-size:14.5px; }
+  kbd { background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:1px 6px; font-size:12.5px; }
+  .demo { font-size:19px; margin-top:8px; color:var(--text); }
+  .foot { margin-top:26px; font-size:13.5px; color:var(--muted); }
+  .foot a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>World<span class="g">glass</span></h1>
+  <p class="sub">See the world in its own words. Here's everything in 30 seconds.</p>
+
+  <div class="card">
+    <h2><span class="n">1</span>Select any word</h2>
+    <p>Highlight text in Chinese, Japanese, Korean, Arabic, Hebrew, Jawi, Malay, French, German, or Spanish — on any page. Worldglass detects the language and shows readings, meaning, and examples. Try it right here:</p>
+    <p class="demo" lang="zh">我每天用电脑学习中文。</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span>Go deeper</h2>
+    <p>Click any character for the words built from it (电 → 电话 · 电脑 · 电影), click words inside definitions to follow meaning inward, and use the 普/粤/闽/潮 and 简/繁 chips in Chinese popups to switch readings and script.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">3</span>Read anything — even images</h2>
+    <p>Click the floating 文 button (bottom-right of every page), press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd>, or right-click → Worldglass. Then drag a box over anything: real text is read instantly, and text inside images is recognized on your device.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">4</span>Private by design</h2>
+    <p>Dictionaries live on your device and lookups never touch a server. Some large dictionaries download once on first use, then stay local.</p>
+  </div>
+
+  <p class="foot">Created by <a href="https://www.victor-tan.com">Victor Tan</a> · <a href="https://github.com/victortanws/Worldglass">GitHub</a> · <a href="https://buymeacoffee.com/victortanws">Buy me a coffee ☕</a></p>
+</div>
+</body>
+</html>

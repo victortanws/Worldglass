@@ -1,8 +1,7 @@
-// Unified Lens service worker.
-// All language handler modules are imported at startup (their code is tiny);
-// each module lazy-loads its own dictionary data only when first used, so memory
-// stays bounded to the languages actually exercised.
-importScripts('lens-core.js', 'lens-langs.js');
+// Worldglass service worker — a thin router. Dictionaries and the OCR engine live in the
+// offscreen document (see offscreen.js): the worker is killed after ~30s idle, and
+// re-parsing 250 MB of dictionaries on every wake made the first lookup after a pause
+// crawl. The offscreen document persists, so everything stays warm.
 
 let offscreenReady = null;
 function ensureOffscreen() {
@@ -11,19 +10,19 @@ function ensureOffscreen() {
       await chrome.offscreen.createDocument({
         url: 'ocr/offscreen.html',
         reasons: ['WORKERS'],
-        justification: 'Runs the Tesseract OCR engine, which needs a document context for web workers',
+        justification: 'Hosts the dictionary engines and the Tesseract OCR engine, which need a persistent document context',
       });
     }
   })();
   return offscreenReady;
 }
 
-// OCR snip is reachable three ways besides the toolbar popup: the page's floating button
+// OCR snip is reachable four ways: the toolbar popup, the page's floating button
 // (relaySnip below), a right-click context menu, and a keyboard shortcut (Alt+Shift+O).
 function startSnipIn(tabId) {
   if (tabId != null) chrome.tabs.sendMessage(tabId, { type: 'startSnip' }).catch(() => {});
 }
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   chrome.contextMenus?.removeAll(() => {
     chrome.contextMenus.create({
       id: 'wg-snip',
@@ -31,6 +30,9 @@ chrome.runtime.onInstalled.addListener(() => {
       contexts: ['page', 'image', 'selection'],
     });
   });
+  if (details.reason === 'install') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') }).catch(() => {});
+  }
 });
 chrome.contextMenus?.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'wg-snip') startSnipIn(tab?.id);
@@ -41,7 +43,7 @@ chrome.commands?.onCommand.addListener((cmd) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg?.target === 'offscreen') return false;
+  if (msg?.target === 'offscreen') return false; // offscreen handles it
 
   if (msg?.type === 'relaySnip') {
     startSnipIn(sender.tab?.id);
@@ -54,19 +56,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((err) => sendResponse({ error: String(err) }));
     return true;
   }
-  if (msg?.type === 'ocrRecognize') {
-    ensureOffscreen()
-      .then(() => chrome.runtime.sendMessage({ ...msg, target: 'offscreen' }))
-      .then(sendResponse)
-      .catch((err) => sendResponse({ error: String(err) }));
-    return true;
-  }
 
-  // Dictionary operations are routed by detected language.
-  const code = msg?.lang ?? 'zh';
-  const mod = self.LENS.get(code);
-  if (!mod) { sendResponse({ error: `no language module: ${code}` }); return true; }
-  mod.handle(msg)
+  // Everything else — dictionary ops, ocrRecognize, ocrWarm, packStatus — runs in the
+  // offscreen document.
+  ensureOffscreen()
+    .then(() => chrome.runtime.sendMessage({ ...msg, target: 'offscreen' }))
     .then(sendResponse)
     .catch((err) => sendResponse({ error: String(err) }));
   return true;

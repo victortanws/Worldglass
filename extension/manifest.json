@@ -5,9 +5,13 @@
   "description": "Hold any word up to the glass: Worldglass auto-detects the language and shows its reading, meaning, examples, and the characters it is built from — in Chinese, Japanese, Korean, Arabic, Jawi, Hebrew, French, German, Spanish, and Malay (more on request). OCR reads text in images. Everything runs on your device.",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "offscreen",
     "activeTab",
     "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "commands": {
     "start-ocr-snip": {
@@ -25,6 +29,7 @@
       "matches": [
         "<all_urls>"
       ],
+      "all_frames": true,
       "js": [
         "detect.js",
         "content.js",
