@@ -76,6 +76,7 @@
     button.rd-chip { all: unset; cursor: pointer; font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid #dcd8cc; color: #6b6960; }
     button.rd-chip:hover { border-color: #3a6ea5; color: #3a6ea5; }
     button.rd-chip.on { background: #e3edfb; border-color: #3a6ea5; color: #3a6ea5; font-weight: 600; }
+    .rd-sep { width: 1px; align-self: stretch; margin: 1px 3px; background: #e3dfd2; }
     .hint { font-size: 12px; color: #8a8781; margin-top: 8px; }
     .nf { color: #8a8781; font-style: italic; margin: 6px 0; }
     .chars { display: flex; flex-wrap: wrap; gap: 8px 16px; border-top: 1px solid #ece9e2; padding-top: 8px; margin-top: 6px; }
@@ -140,6 +141,7 @@
       button.rd-chip { border-color: #45443c; color: #a8a496; }
       button.rd-chip:hover { border-color: #8ab4e8; color: #8ab4e8; }
       button.rd-chip.on { background: #2f3d50; border-color: #8ab4e8; color: #8ab4e8; }
+      .rd-sep { background: #45443c; }
       .zhx-fab { background: #26251f; border-color: #3f5876; color: #8ab4e8; }
       .zhx-footer { border-color: #45443c; color: #8f8b81; }
       .zhx-footer a { color: #a8a496; }
@@ -340,8 +342,9 @@
     ['nan', '闽', 'Hokkien — Pe̍h-ōe-jī'],
     ['teo', '潮', 'Teochew — Peng\'im'],
   ];
-  // Inline reading switcher for Chinese popups. Persists the choice; applyModes re-renders
-  // any open popup in place, so switching feels instant instead of closing the popup.
+  // Inline reading + script switchers for Chinese popups. Persist the choice; applyModes
+  // re-renders any open popup in place, so switching feels instant instead of closing it.
+  // Script chips toggle: click 简 or 繁 to force that script, click again for as-written.
   function readingChips() {
     const row = document.createElement('div');
     row.className = 'rd-row';
@@ -356,7 +359,55 @@
       });
       row.appendChild(chip);
     }
+    const sep = document.createElement('span');
+    sep.className = 'rd-sep';
+    row.appendChild(sep);
+    for (const [id, label, title] of [
+      ['simp', '简', 'Show entries in Simplified (click again for as-written)'],
+      ['trad', '繁', 'Show entries in Traditional (click again for as-written)'],
+    ]) {
+      const chip = document.createElement('button');
+      chip.className = 'rd-chip' + (id === scriptPref ? ' on' : '');
+      chip.textContent = label;
+      chip.title = title;
+      chip.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        chrome.storage.local.set({ zhxScript: scriptPref === id ? 'auto' : id });
+      });
+      row.appendChild(chip);
+    }
     return row;
+  }
+
+  // Word families exist for the character/syllable-based scripts, where a shared glyph is
+  // a shared morpheme (zh 词 / ja 語 / ko 단어).
+  const FAM_LABEL = { zh: '词 ▾', ja: '語 ▾', ko: '단어 ▾' };
+  function famWordsEl(words, emptyMsg) {
+    const wrap = document.createElement('div');
+    wrap.className = 'fam-words';
+    for (const fw of (words ?? [])) {
+      const chip = document.createElement('span');
+      chip.className = 'lnk fam-w';
+      chip.dataset.w = fw.w;
+      const w = document.createElement('span'); w.className = 'fw'; w.textContent = fw.w;
+      const p = document.createElement('span'); p.className = 'fp'; p.textContent = fw.p;
+      const g = document.createElement('span'); g.className = 'fg'; g.textContent = cleanDef(fw.g).slice(0, 22);
+      chip.append(w, ' ', p, ' ', g);
+      wrap.appendChild(chip);
+    }
+    if (!(words ?? []).length) wrap.textContent = emptyMsg;
+    return wrap;
+  }
+  async function loadFamilyInto(box, ch, excludeWord) {
+    const seq = renderSeq;
+    const r = await chrome.runtime.sendMessage({ type: 'family', char: ch, word: excludeWord, lang: currentLang, reading: readingMode, limit: 12 }).catch(() => null);
+    if (seq !== renderSeq || !box.isConnected) return;
+    box.textContent = '';
+    const hdr = document.createElement('div');
+    hdr.className = 'fam-h';
+    hdr.textContent = `Words with ${ch}`;
+    box.appendChild(hdr);
+    box.appendChild(famWordsEl(r?.words, '(no other words with this character)'));
   }
 
   function speak(text) {
@@ -585,37 +636,13 @@
       chars.className = 'chars';
       const famBox = document.createElement('div');
       famBox.className = 'fambox';
-      // Word families exist for the character/syllable-based scripts, where a shared
-      // glyph is a shared morpheme (zh 词 / ja 語 / ko 단어).
-      const FAM_LABEL = { zh: '词 ▾', ja: '語 ▾', ko: '단어 ▾' };
       const famable = FAM_LABEL[currentLang] !== undefined;
       let famCh = null;
       async function showFamily(ch) {
         if (famCh === ch) { famBox.textContent = ''; famCh = null; return; }
         famCh = ch;
         famBox.textContent = 'Loading…';
-        const seq = renderSeq;
-        const r = await chrome.runtime.sendMessage({ type: 'family', char: ch, word: pop.dataset.word, lang: currentLang, reading: readingMode, limit: 12 });
-        if (seq !== renderSeq || famCh !== ch) return;
-        famBox.textContent = '';
-        const hdr = document.createElement('div');
-        hdr.className = 'fam-h';
-        hdr.textContent = `Words with ${ch}`;
-        famBox.appendChild(hdr);
-        const wrap = document.createElement('div');
-        wrap.className = 'fam-words';
-        for (const fw of (r.words ?? [])) {
-          const chip = document.createElement('span');
-          chip.className = 'lnk fam-w';
-          chip.dataset.w = fw.w;
-          const w = document.createElement('span'); w.className = 'fw'; w.textContent = fw.w;
-          const p = document.createElement('span'); p.className = 'fp'; p.textContent = fw.p;
-          const g = document.createElement('span'); g.className = 'fg'; g.textContent = cleanDef(fw.g).slice(0, 22);
-          chip.append(w, ' ', p, ' ', g);
-          wrap.appendChild(chip);
-        }
-        if (!(r.words ?? []).length) wrap.textContent = '(no other words with this character)';
-        famBox.appendChild(wrap);
+        await loadFamilyInto(famBox, ch, pop.dataset.word);
       }
       for (const c of res.chars) {
         const card = document.createElement('div');
@@ -642,6 +669,16 @@
       }
       body.appendChild(chars);
       body.appendChild(famBox);
+    } else if (res.found && FAM_LABEL[currentLang] && [...word].length === 1
+        && (currentLang === 'ko' ? /[가-힣]/ : HAN_RE).test(word)) {
+      // A single-character lookup IS the character: surface its word family directly
+      // (suggested 词/語/단어) — there is no breakdown row to hang the toggle on, and the
+      // family is the main thing worth exploring from a lone glyph.
+      const famBox = document.createElement('div');
+      famBox.className = 'fambox';
+      famBox.textContent = 'Loading…';
+      body.appendChild(famBox);
+      loadFamilyInto(famBox, word, word);
     }
 
     if (Array.isArray(examples) && examples.length) {
