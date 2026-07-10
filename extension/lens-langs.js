@@ -1083,6 +1083,30 @@ function zhxCandidates(word) {
   }
   return [...new Set(out)];
 }
+// Token readings come only from the dictionary. Unvocalized Arabic has no written
+// short vowels, so letter-mapping an unknown word yields consonant soup ("mdrsa") — worse
+// than no reading. When a word is a clitic + known base (والقاموس = wa + al + qamus), the
+// reading is composed from the prefix's romanization and the base's dictionary reading.
+const ZHX_PREFIX_ROMAN = [['وال', 'wal-'], ['بال', 'bil-'], ['كال', 'kal-'], ['فال', 'fal-'], ['لل', 'lil-'], ['ال', 'al-'], ['و', 'wa-'], ['ف', 'fa-'], ['ب', 'bi-'], ['ك', 'ka-'], ['ل', 'li-']];
+const ZHX_SUN_CLUSTER = /^(sh|th|dh|[tdrzsln])/; // Arabic definite-article assimilation
+function zhxTokenReading(run) {
+  const bare = zhxBare(run);
+  const exact = (zhxIndex.get(bare) ?? [])[0];
+  if (exact?.x) return exact.x;
+  for (const [p, roman] of ZHX_PREFIX_ROMAN) {
+    if (bare.length > p.length + 2 && bare.startsWith(p)) {
+      const base = (zhxIndex.get(bare.slice(p.length)) ?? [])[0];
+      if (base?.x) {
+        if (roman.endsWith('l-')) {
+          const sun = base.x.match(ZHX_SUN_CLUSTER);
+          if (sun) return roman.slice(0, -2) + sun[1] + '-' + base.x;
+        }
+        return roman + base.x;
+      }
+    }
+  }
+  return null;
+}
 
 let zhxIndex = null;
 let zhxDictPromise = null;
@@ -1128,13 +1152,26 @@ function zhxLookupWord(word) {
   return null;
 }
 
+// Reduplication note (Malay 词-doubling carries meaning): kanak-kanak = plural,
+// sayur-sayuran = variety, tolong-menolong = reciprocal.
+function zhxRedup(word) {
+  const hy = word.indexOf('-');
+  if (hy <= 0) return undefined;
+  const a = word.slice(0, hy).toLowerCase();
+  const b = word.slice(hy + 1).toLowerCase();
+  if (a === b) return 'reduplication — plural or repetition of "' + a + '"';
+  if (b === a + 'an' || b === a + 'kan') return 'reduplication — variety/collective of "' + a + '"';
+  if (/^(me|men|mem|meng|meny)/.test(b) && b.length > 3) return 'reduplication — reciprocal (doing "' + a + '" to one another)';
+  return undefined;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: (zhxIndex.get(zhxBare(run)) ?? [])[0]?.x || zhxTranslit(run), han: true, h: 0 });
+    tokens.push({ w: run, p: zhxTokenReading(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1154,8 +1191,9 @@ async function zhxHandle(msg) {
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
+      redup: zhxRedup(msg.word),
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || zhxTranslit(list[0].w), defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs: list.map((e) => e.g).slice(0, 8) }],
       chars: [],
     };
   }
@@ -1240,13 +1278,26 @@ function zhxLookupWord(word) {
   return null;
 }
 
+// Reduplication note (Malay 词-doubling carries meaning): kanak-kanak = plural,
+// sayur-sayuran = variety, tolong-menolong = reciprocal.
+function zhxRedup(word) {
+  const hy = word.indexOf('-');
+  if (hy <= 0) return undefined;
+  const a = word.slice(0, hy).toLowerCase();
+  const b = word.slice(hy + 1).toLowerCase();
+  if (a === b) return 'reduplication — plural or repetition of "' + a + '"';
+  if (b === a + 'an' || b === a + 'kan') return 'reduplication — variety/collective of "' + a + '"';
+  if (/^(me|men|mem|meng|meny)/.test(b) && b.length > 3) return 'reduplication — reciprocal (doing "' + a + '" to one another)';
+  return undefined;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: (zhxIndex.get(zhxBare(run)) ?? [])[0]?.w ?? ('≈' + zhxTranslit(run)), han: true, h: 0 });
+    tokens.push({ w: run, p: (zhxIndex.get(zhxBare(run)) ?? [])[0]?.w ?? null, han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1266,6 +1317,7 @@ async function zhxHandle(msg) {
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
+      redup: zhxRedup(msg.word),
       hsk: 0,
       entries: [{ s: list[0].w, t: list[0].w, p: list[0].w, defs: list.map((e) => e.g).slice(0, 8) }],
       chars: [],
@@ -1315,6 +1367,30 @@ function zhxCandidates(word) {
   }
   return [...new Set(out)];
 }
+// Token readings come only from the dictionary. Unvocalized Hebrew has no written
+// short vowels, so letter-mapping an unknown word yields consonant soup ("mdrsa") — worse
+// than no reading. When a word is a clitic + known base (والقاموس = wa + al + qamus), the
+// reading is composed from the prefix's romanization and the base's dictionary reading.
+const ZHX_PREFIX_ROMAN = [['וה', 'veha-'], ['שה', 'sheha-'], ['מה', 'meha-'], ['בה', 'ba-'], ['ה', 'ha-'], ['ו', 've-'], ['ב', 'be-'], ['ל', 'le-'], ['מ', 'mi-'], ['כ', 'ke-'], ['ש', 'she-']];
+const ZHX_SUN_CLUSTER = /^(sh|th|dh|[tdrzsln])/; // Arabic definite-article assimilation
+function zhxTokenReading(run) {
+  const bare = zhxBare(run);
+  const exact = (zhxIndex.get(bare) ?? [])[0];
+  if (exact?.x) return exact.x;
+  for (const [p, roman] of ZHX_PREFIX_ROMAN) {
+    if (bare.length > p.length + 2 && bare.startsWith(p)) {
+      const base = (zhxIndex.get(bare.slice(p.length)) ?? [])[0];
+      if (base?.x) {
+        if (roman.endsWith('l-')) {
+          const sun = base.x.match(ZHX_SUN_CLUSTER);
+          if (sun) return roman.slice(0, -2) + sun[1] + '-' + base.x;
+        }
+        return roman + base.x;
+      }
+    }
+  }
+  return null;
+}
 
 let zhxIndex = null;
 let zhxDictPromise = null;
@@ -1360,13 +1436,26 @@ function zhxLookupWord(word) {
   return null;
 }
 
+// Reduplication note (Malay 词-doubling carries meaning): kanak-kanak = plural,
+// sayur-sayuran = variety, tolong-menolong = reciprocal.
+function zhxRedup(word) {
+  const hy = word.indexOf('-');
+  if (hy <= 0) return undefined;
+  const a = word.slice(0, hy).toLowerCase();
+  const b = word.slice(hy + 1).toLowerCase();
+  if (a === b) return 'reduplication — plural or repetition of "' + a + '"';
+  if (b === a + 'an' || b === a + 'kan') return 'reduplication — variety/collective of "' + a + '"';
+  if (/^(me|men|mem|meng|meny)/.test(b) && b.length > 3) return 'reduplication — reciprocal (doing "' + a + '" to one another)';
+  return undefined;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: (zhxIndex.get(zhxBare(run)) ?? [])[0]?.x || zhxTranslit(run), han: true, h: 0 });
+    tokens.push({ w: run, p: zhxTokenReading(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1386,8 +1475,9 @@ async function zhxHandle(msg) {
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
+      redup: zhxRedup(msg.word),
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || zhxTranslit(list[0].w), defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs: list.map((e) => e.g).slice(0, 8) }],
       chars: [],
     };
   }

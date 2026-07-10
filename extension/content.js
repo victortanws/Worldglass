@@ -107,6 +107,8 @@
     .lang-chip { font-size: 11px; color: #6b6960; background: #f0efe9; border-radius: 6px; padding: 1px 7px; align-self: center; white-space: nowrap; }
     .lang-chip.switchable { cursor: pointer; color: #3a6ea5; }
     .lang-chip.switchable:hover { background: #e3edfb; }
+    .zhx-fab { position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; width: 36px; height: 36px; border-radius: 50%; border: 1px solid #c9d8ea; background: #f7f6f1; color: #3a6ea5; font: 16px/1 sans-serif; cursor: pointer; opacity: .5; box-shadow: 0 2px 10px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; transition: opacity .15s ease; touch-action: none; }
+    .zhx-fab:hover { opacity: 1; }
     .zhx-footer { border-top: 1px solid #ece9e2; padding: 7px 12px 9px; font-size: 11px; line-height: 1.5; color: #a19d94; }
     .zhx-footer a { color: #8a867d; text-decoration: none; }
     .zhx-footer a:hover { color: #3a6ea5; text-decoration: underline; }
@@ -138,6 +140,7 @@
       button.rd-chip { border-color: #45443c; color: #a8a496; }
       button.rd-chip:hover { border-color: #8ab4e8; color: #8ab4e8; }
       button.rd-chip.on { background: #2f3d50; border-color: #8ab4e8; color: #8ab4e8; }
+      .zhx-fab { background: #26251f; border-color: #3f5876; color: #8ab4e8; }
       .zhx-footer { border-color: #45443c; color: #8f8b81; }
       .zhx-footer a { color: #a8a496; }
       .zhx-footer a:hover { color: #8ab4e8; }
@@ -762,6 +765,18 @@
     const hanWords = tokens.filter((t) => t.han);
     if (hanWords.length === 0) return;
     if (hanWords.length === 1) {
+      // If our detected language's dictionary doesn't know the word but another detector
+      // candidate's does (経済 is Japanese-only shinjitai; Jawi and Arabic share a script),
+      // switch language instead of rendering "No dictionary entry".
+      const first = await chrome.runtime.sendMessage({ type: 'lookup', word: hanWords[0].w, lang: currentLang, reading: readingMode }).catch(() => null);
+      if (!first?.found) {
+        for (const c of det?.candidates ?? []) {
+          if (c.lang === currentLang || !LANG_META[c.lang]) continue;
+          const alt = await chrome.runtime.sendMessage({ type: 'lookup', word: hanWords[0].w, lang: c.lang, reading: readingMode }).catch(() => null);
+          if (alt?.found) { currentLang = c.lang; break; }
+        }
+      }
+      if (seq !== renderSeq) return;
       closePopup(1);
       await openEntry(1, hanWords[0].w, getRect);
       return;
@@ -816,12 +831,108 @@
   }
 
 
+  // Floating OCR button: snip mode used to live only behind the toolbar popup, a long
+  // reach for something used mid-page. A small draggable button (toggleable in settings)
+  // starts a snip in place. Click = snip; drag = reposition.
+  let fab = null;
+  let fabOn = true;
+  function ensureFab() {
+    if (!fabOn) { if (fab) fab.style.display = 'none'; return; }
+    ensureUI();
+    if (fab) { fab.style.display = ''; return; }
+    fab = document.createElement('button');
+    fab.className = 'zhx-fab';
+    fab.title = 'Worldglass OCR — click, then drag a box over text in an image (drag me to move)';
+    fab.textContent = '文';
+    fab.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      const rect = fab.getBoundingClientRect();
+      const offX = ev.clientX - rect.left;
+      const offY = ev.clientY - rect.top;
+      const sx = ev.clientX, sy = ev.clientY;
+      let moved = false;
+      const onMove = (e) => {
+        if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 4) moved = true;
+        if (!moved) return;
+        fab.style.right = `${Math.max(4, window.innerWidth - (e.clientX - offX) - fab.offsetWidth)}px`;
+        fab.style.bottom = `${Math.max(4, window.innerHeight - (e.clientY - offY) - fab.offsetHeight)}px`;
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if (!moved) chrome.runtime.sendMessage({ type: 'relaySnip' }).catch(() => {});
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+    shadow.appendChild(fab);
+  }
+
+  // Serialize a selection the way it READS, not the way the DOM stores it. textContent
+  // concatenates text nodes with no separators, so an inline label glued to a word
+  // ("<span class=tag>ms</span>Pelajar" → "msPelajar") produced junk tokens. Walk the live
+  // range instead: skip ruby annotations and hidden text, and insert a separator whenever
+  // the boundary between two text nodes crosses an element that is visually separated —
+  // non-inline display, or an inline element carrying horizontal margin/padding. Plain
+  // inline wrappers (<b>经</b>济) still join seamlessly.
   function selectionText(sel) {
     try {
-      const frag = sel.getRangeAt(0).cloneContents();
-      for (const el of frag.querySelectorAll('rt, rp')) el.remove();
-      const text = frag.textContent;
-      if (text) return text.trim();
+      const range = sel.getRangeAt(0);
+      const rootNode = range.commonAncestorContainer;
+      const root = rootNode.nodeType === Node.ELEMENT_NODE ? rootNode : rootNode.parentElement;
+      const skip = (node) => {
+        for (let el = node.parentElement; el; el = el.parentElement) {
+          const tag = el.tagName;
+          if (tag === 'RT' || tag === 'RP' || tag === 'SCRIPT' || tag === 'STYLE') return true;
+          const cs = getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+          if (el === root) break;
+        }
+        return false;
+      };
+      const separated = (el) => {
+        const cs = getComputedStyle(el);
+        const d = cs.display;
+        if (d !== 'inline' && d !== 'contents' && !d.startsWith('ruby')) return d === 'block' || d === 'list-item' || d.startsWith('table') ? '\n' : ' ';
+        const gap = parseFloat(cs.marginLeft) + parseFloat(cs.marginRight) + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+        return gap > 1 ? ' ' : '';
+      };
+      const chain = (node) => {
+        const els = [];
+        for (let el = node.parentElement; el && el !== root; el = el.parentElement) els.push(el);
+        return els;
+      };
+      const walker = document.createTreeWalker(root ?? document.body, NodeFilter.SHOW_TEXT);
+      let out = '';
+      let prev = null;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!range.intersectsNode(node)) { if (out) break; continue; }
+        const start = node === range.startContainer ? range.startOffset : 0;
+        const end = node === range.endContainer ? range.endOffset : node.nodeValue.length;
+        const text = node.nodeValue.slice(start, end);
+        if (!text || skip(node)) continue;
+        if (prev) {
+          const prevChain = chain(prev);
+          const nextChain = chain(node);
+          const nextSet = new Set(nextChain);
+          const shared = prevChain.find((el) => nextSet.has(el));
+          const crossed = [
+            ...prevChain.slice(0, shared ? prevChain.indexOf(shared) : prevChain.length),
+            ...nextChain.slice(0, shared ? nextChain.indexOf(shared) : nextChain.length),
+          ];
+          let sep = '';
+          for (const el of crossed) {
+            const s = separated(el);
+            if (s === '\n') { sep = '\n'; break; }
+            if (s === ' ') sep = ' ';
+          }
+          out += sep;
+        }
+        out += text;
+        prev = node;
+        if (out.length > MAX_SELECTION * 3) break;
+      }
+      if (out.trim()) return out.trim();
     } catch { /* fall through */ }
     return sel.toString().trim();
   }
@@ -837,16 +948,46 @@
     return '';
   }
 
+  // Script detection can't attribute a bare Latin word without diacritics or stopwords —
+  // "membaca" selected on an English page scores nothing and nothing happened at all. For
+  // short alphabetic selections the detector gives up on, ask the dictionaries directly
+  // and open in whichever language actually knows the word (page language first).
+  // Ordered smallest-dictionary-first so the common case stays fast; the first hit wins,
+  // and a slow dictionary load (Spanish is 74 MB) can't stall the popup past its timeout.
+  const LATIN_PROBE = ['ms', 'fr', 'de', 'es'];
+  async function probeLatinWord(text) {
+    const t = text.trim();
+    if (!/^[A-Za-zÀ-ÖØ-öø-ÿŒœÆæ''. -]+$/.test(t) || t.length > 40 || t.split(/\s+/).length > 3) return null;
+    // Judge the selection alone: detect() mixes in page context, so a foreign word inside
+    // an English sentence reads as "en" — exactly the case the probe exists for.
+    const own = LensDetect.detect(t, '', null);
+    if (own.lang === 'en') return null; // the selected words themselves are English
+    const hint = LensDetect.pageHint ? LensDetect.pageHint(document.documentElement.lang) : null;
+    const order = LATIN_PROBE.includes(hint) ? [hint, ...LATIN_PROBE.filter((l) => l !== hint)] : LATIN_PROBE;
+    for (const lang of order) {
+      const r = await withTimeout(
+        chrome.runtime.sendMessage({ type: 'lookup', word: t, lang, reading: readingMode }), 6000,
+      ).catch(() => null);
+      if (r?.found && !r.tentative) {
+        return { lang, supported: true, confidence: 0.5, reason: 'dict-probe', candidates: order.map((l) => ({ lang: l })) };
+      }
+    }
+    return null;
+  }
+
   document.addEventListener('mouseup', (ev) => {
     if (ev.composedPath().includes(host)) return;
-    setTimeout(() => {
+    setTimeout(async () => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) return;
       let text = selectionText(sel);
       if (!text) return;
       const ctx = contextSample(sel.anchorNode);
-      const det = LensDetect.detect(text, ctx, document.documentElement.lang);
-      if (!det.supported || !LANG_META[det.lang]) return;
+      let det = LensDetect.detect(text, ctx, document.documentElement.lang);
+      if (!det.supported || !LANG_META[det.lang]) {
+        det = await probeLatinWord(text);
+        if (!det) return;
+      }
       currentLang = det.lang;
       const truncated = text.length > MAX_SELECTION;
       if (truncated) text = text.slice(0, MAX_SELECTION);
@@ -1036,7 +1177,7 @@
     if (nodes.length) await annotateNodes(nodes);
   }
 
-  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto' };
+  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto', zhxFab: true };
 
   // Re-render whatever popups are open (nested first) so a reading/script change updates
   // them live — closing the popup the user is looking at made switching feel broken.
@@ -1064,6 +1205,8 @@
     const scriptChanged = newScript !== scriptPref;
     readingMode = newReading;
     scriptPref = newScript;
+    fabOn = cfg.zhxFab !== false;
+    ensureFab();
     if (readingChanged || scriptChanged) rerenderPopups();
     if (readingChanged && annotated) {
       revertAnnotation();
@@ -1078,13 +1221,15 @@
   chrome.storage.local.get(SETTINGS).then((cfg) => {
     readingMode = cfg.zhxReading ?? 'man';
     scriptPref = cfg.zhxScript ?? 'auto';
+    fabOn = cfg.zhxFab !== false;
+    ensureFab();
     if (cfg.zhxPinyin || cfg.zhxBounds) applyModes(cfg);
     else knownMax = Number(cfg.zhxHskMax) || 0;
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes) && !('zhxScript' in changes)) return;
+    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes) && !('zhxScript' in changes) && !('zhxFab' in changes)) return;
     chrome.storage.local.get(SETTINGS).then(applyModes);
   });
 })();

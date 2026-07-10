@@ -6,8 +6,17 @@
   "permissions": [
     "storage",
     "offscreen",
-    "activeTab"
+    "activeTab",
+    "contextMenus"
   ],
+  "commands": {
+    "start-ocr-snip": {
+      "suggested_key": {
+        "default": "Alt+Shift+O"
+      },
+      "description": "Start an OCR snip (read text in an image)"
+    }
+  },
   "background": {
     "service_worker": "background.js"
   },

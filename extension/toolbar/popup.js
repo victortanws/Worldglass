@@ -3,13 +3,16 @@ const savedList = document.getElementById('saved-list');
 const exportBtn = document.getElementById('export');
 
 const script = document.getElementById('script');
+const fabToggle = document.getElementById('fab');
 
-chrome.storage.local.get({ zhxReading: 'man', zhxScript: 'auto' }).then((cfg) => {
+chrome.storage.local.get({ zhxReading: 'man', zhxScript: 'auto', zhxFab: true }).then((cfg) => {
   reading.value = cfg.zhxReading;
   script.value = cfg.zhxScript;
+  fabToggle.checked = cfg.zhxFab !== false;
 });
 reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: reading.value }));
 script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));
+fabToggle.addEventListener('change', () => chrome.storage.local.set({ zhxFab: fabToggle.checked }));
 
 async function renderSaved() {
   const { zhxSaved = {} } = await chrome.storage.local.get('zhxSaved');

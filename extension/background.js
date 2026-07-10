@@ -18,9 +18,36 @@ function ensureOffscreen() {
   return offscreenReady;
 }
 
+// OCR snip is reachable three ways besides the toolbar popup: the page's floating button
+// (relaySnip below), a right-click context menu, and a keyboard shortcut (Alt+Shift+O).
+function startSnipIn(tabId) {
+  if (tabId != null) chrome.tabs.sendMessage(tabId, { type: 'startSnip' }).catch(() => {});
+}
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus?.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'wg-snip',
+      title: 'Worldglass: read text in an image (OCR)',
+      contexts: ['page', 'image', 'selection'],
+    });
+  });
+});
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'wg-snip') startSnipIn(tab?.id);
+});
+chrome.commands?.onCommand.addListener((cmd) => {
+  if (cmd !== 'start-ocr-snip') return;
+  chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => startSnipIn(tab?.id));
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target === 'offscreen') return false;
 
+  if (msg?.type === 'relaySnip') {
+    startSnipIn(sender.tab?.id);
+    sendResponse({});
+    return true;
+  }
   if (msg?.type === 'ocrCapture') {
     chrome.tabs.captureVisibleTab(null, { format: 'png' })
       .then((dataUrl) => sendResponse({ dataUrl }))
