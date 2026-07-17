@@ -654,6 +654,13 @@ function zhxDeinflect(word) {
 }
 
 function zhxLookupDeinflected(surface) {
+  // Halfwidth katakana (ｶﾀｶﾅ — old forums, terminal dumps) and other compatibility forms
+  // normalize to the shapes the dictionary indexes.
+  const nfkc = surface.normalize('NFKC');
+  if (nfkc !== surface) {
+    const hit = zhxLookupDeinflected(nfkc);
+    if (hit) return hit;
+  }
   for (const { w: cand, path } of zhxDeinflect(surface)) {
     const entries = zhxIndex.get(cand);
     if (!entries) continue;
