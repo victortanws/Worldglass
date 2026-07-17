@@ -97,6 +97,13 @@
   .wg-pop .wg-d { margin-top: 3px; color: var(--text); }
   .wg-pop .wg-lit { margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--border); font-size: 13px; color: var(--muted); }
   .wg-pop .wg-lit em { font-style: normal; color: var(--accent); }
+  .wg-pop.wg-wide { max-width: 420px; }
+  .wg-line { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  .wg-tok { display: inline-flex; flex-direction: column; align-items: center; }
+  .wg-tw { font-family: var(--serif); font-size: 19px; color: var(--text); }
+  .wg-tg { font-size: 11px; color: var(--muted); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wg-cap { margin-top: 9px; padding-top: 7px; border-top: 1px dashed var(--border); font-size: 12px; font-style: italic; color: var(--muted); }
+  .wg-note { font-size: 13.5px; color: var(--muted); max-width: 300px; }
 
   /* ---------- OCR toolbar illustration ---------- */
   .toolbar-fig { margin: 26px 0 0; }
@@ -220,10 +227,11 @@
     <div class="tryit" id="tryit">
       <div class="tryit-head">
         <p class="kicker">Try it — right here</p>
-        <span class="tryit-hint">Select any word, or tap the underlined ones ↓</span>
+        <span class="tryit-hint">Tap a word — or drag across a whole line ↓</span>
       </div>
       <div class="tryit-lines">
         <div class="tl"><span class="tl-lang">中文</span><p class="tryit-sentence" lang="zh"><span class="tw" data-w="我">我</span><span class="tw" data-w="每天">每天</span><span class="tw" data-w="用">用</span><span class="tw hintword" data-w="电脑">电脑</span><span class="tw" data-w="学习">学习</span><span class="tw" data-w="中文">中文</span>。</p></div>
+        <div class="tl"><span class="tl-lang">Melayu</span><p class="tryit-sentence" lang="ms"><span class="tw hintword" data-w="Pelajar">Pelajar</span> <span class="tw" data-w="itu">itu</span> <span class="tw" data-w="membaca">membaca</span> <span class="tw" data-w="buku">buku</span> <span class="tw" data-w="di">di</span> <span class="tw" data-w="perpustakaan">perpustakaan</span>.</p></div>
         <div class="tl"><span class="tl-lang">日本語</span><p class="tryit-sentence" lang="ja"><span class="tw" data-w="私">私</span>は<span class="tw" data-w="毎日">毎日</span><span class="tw hintword" data-w="日本語">日本語</span>を<span class="tw" data-w="勉強">勉強</span>します。</p></div>
         <div class="tl"><span class="tl-lang">한국어</span><p class="tryit-sentence" lang="ko"><span class="tw" data-w="저">저</span>는 <span class="tw" data-w="매일">매일</span> <span class="tw" data-w="한국어">한국어</span>를 <span class="tw" data-w="공부">공부</span>합니다.</p></div>
         <div class="tl"><span class="tl-lang">العربية</span><p class="tryit-sentence" lang="ar" dir="rtl"><span class="tw" data-w="أنا">أنا</span> <span class="tw" data-w="أتعلم">أتعلم</span> <span class="tw" data-w="اللغة">اللغة</span> <span class="tw" data-w="العربية">العربية</span>.</p></div>
@@ -263,6 +271,8 @@
       <div class="card"><div class="ic">💬</div><h3>Meaning &amp; examples</h3><p>Concise glosses plus real example sentences, so you see the word doing its job — not just its dictionary entry.</p></div>
       <div class="card"><div class="ic">🌳</div><h3>Word families</h3><p>Tap a character to explore the common words built from it — 学 → 学校 · 大学 · 学习 — and wander the whole neighborhood.</p></div>
       <div class="card"><div class="ic">🔗</div><h3>Nested reference</h3><p>Definitions contain words too. Click a character inside a gloss, or a related word in a family, and Worldglass looks that one up — and the next — as deep as you need.</p></div>
+      <div class="card"><div class="ic">🪞</div><h3>Sentence glosses</h3><p>Select a whole sentence and every word gets a small meaning beneath it — read across the line like interlinear notes, in all ten languages.</p></div>
+      <div class="card"><div class="ic">🌱</div><h3>Remember what you read</h3><p>Saved words return for a ~20-second "show what you know" check with spaced repetition — a growing collection and a known-by-heart shelf. No points, no streaks.</p></div>
       <div class="card"><div class="ic">🔊</div><h3>Pronunciation</h3><p>Tap to hear a word or line read aloud with your device's built-in voices — a quick check on a reading.</p></div>
     </div>
   </div>
@@ -422,7 +432,14 @@
     // Spanish
     'Leo':    { p: 'ˈle.o',   d: 'I read (from leer)' },
     'mundo':  { p: 'ˈmun.do', d: 'world' },
-    'idioma': { p: 'iˈðjo.ma', d: 'language' }
+    'idioma': { p: 'iˈðjo.ma', d: 'language' },
+    // Malay
+    'Pelajar':      { p: '', d: 'student', lit: 'peN- (person who) + ajar (teach/learn)' },
+    'itu':          { p: '', d: 'that' },
+    'membaca':      { p: '', d: 'to read', lit: 'meN- (verb) + baca (read)' },
+    'buku':         { p: '', d: 'book' },
+    'di':           { p: '', d: 'at / in' },
+    'perpustakaan': { p: '', d: 'library', lit: 'per-…-an + pustaka (book)' }
   };
   var box = document.getElementById('tryit');
   if (!box) return;
@@ -442,16 +459,51 @@
     pop.style.top = (window.scrollY + rect.bottom + 8) + 'px';
     pop.style.left = Math.max(12, Math.min(window.scrollX + rect.left, maxLeft)) + 'px';
   }
+  // Mini interlinear card for a multi-word selection — mirrors what the real extension
+  // does with any sentence on any site: a small meaning under every word.
+  function showLine(words, rect) {
+    close();
+    pop = document.createElement('div');
+    pop.className = 'wg-pop wg-wide';
+    var html = '<div class="wg-line">';
+    for (var i = 0; i < words.length; i++) {
+      var e = DICT[words[i]];
+      html += '<span class="wg-tok"><span class="wg-tw">' + words[i] + '</span><span class="wg-tg">' + (e ? e.d.split(/[;(]/)[0] : '·') + '</span></span>';
+    }
+    html += '</div><div class="wg-cap">— the real extension does this with any sentence, on any website</div>';
+    pop.innerHTML = html;
+    document.body.appendChild(pop);
+    var maxLeft = window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 12;
+    pop.style.top = (window.scrollY + rect.bottom + 8) + 'px';
+    pop.style.left = Math.max(12, Math.min(window.scrollX + rect.left, maxLeft)) + 'px';
+  }
+  function showNote(rect) {
+    close();
+    pop = document.createElement('div');
+    pop.className = 'wg-pop';
+    pop.innerHTML = '<div class="wg-note">This little page demo only knows its own six sentences. The installed extension carries full dictionaries — 124,000+ Chinese entries alone — and works on every page.</div>';
+    document.body.appendChild(pop);
+    pop.style.top = (window.scrollY + rect.bottom + 8) + 'px';
+    pop.style.left = Math.max(12, window.scrollX + rect.left) + 'px';
+  }
   function fromSelection() {
     var sel = window.getSelection();
     if (!sel || sel.isCollapsed) return false;
-    var node = sel.anchorNode;
-    var el = node && (node.nodeType === 1 ? node : node.parentElement);
-    var tw = el && el.closest ? el.closest('.tw') : null;
-    var rect = sel.getRangeAt(0).getBoundingClientRect();
-    if (tw && DICT[tw.dataset.w]) { show(tw.dataset.w, rect); return true; }
+    var range = sel.getRangeAt(0);
+    var rect = range.getBoundingClientRect();
+    // words the selection actually touches, in document order
+    var touched = [];
+    box.querySelectorAll('.tw').forEach(function (el) {
+      try { if (range.intersectsNode(el)) touched.push(el.dataset.w); } catch (e) { /* ignore */ }
+    });
+    if (touched.length >= 2) { showLine(touched, rect); return true; }
+    if (touched.length === 1 && DICT[touched[0]]) { show(touched[0], rect); return true; }
     var t = sel.toString().replace(/\s+/g, '');
     if (DICT[t]) { show(t, rect); return true; }
+    // honest fallback: selection is inside the demo box but the demo can't answer
+    var node = sel.anchorNode;
+    var el = node && (node.nodeType === 1 ? node : node.parentElement);
+    if (el && el.closest && el.closest('#tryit') && (t.length >= 2 || /[぀-ヿ一-鿿가-힣]/.test(t))) { showNote(rect); return true; }
     return false;
   }
   box.addEventListener('mouseup', function () { setTimeout(fromSelection, 0); });

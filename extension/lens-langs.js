@@ -129,7 +129,7 @@ function zhxEnsureDict() {
 // CEDICT numbered pinyin, lowercased. This can't be context-perfect (single-char
 // readings are context-dependent) but the most-frequent reading is the best default.
 const ZHX_PRIORITY = {
-  骑: 'qi2',
+  骑: 'qi2', 便宜: 'pian2 yi5',
   行: 'xing2', 重: 'zhong4', 还: 'hai2', 差: 'cha4', 都: 'dou1', 长: 'chang2',
   中: 'zhong1', 教: 'jiao1', 好: 'hao3', 了: 'le5', 着: 'zhe5', 得: 'de5',
   地: 'de5', 会: 'hui4', 为: 'wei4', 要: 'yao4', 少: 'shao3', 发: 'fa1',
@@ -221,10 +221,23 @@ function zhxFamily(ch, exclude, mode, limit) {
   });
 }
 
+// Function words gloss by role, not by their dictionary-first sense (在 as a preposition
+// is "at/in", not the verb "to exist").
+const ZHX_FUNC_GLOSS = {
+  在: 'at/in', 是: 'is', 有: 'have/there is', 和: 'and', 很: 'very', 不: 'not', 没: 'not have',
+  我: 'I', 你: 'you', 他: 'he', 她: 'she', 它: 'it', 我们: 'we', 他们: 'they', 你们: 'you (pl)',
+  吗: '(question)', 呢: '(and…?)', 吧: '(suggestion)', 也: 'also', 都: 'all/both', 会: 'will/can',
+  要: 'want/will', 能: 'can', 就: 'then/just', 还: 'still/also', 从: 'from', 到: 'to/until',
+  对: 'to/towards', 给: 'to/for', 被: '(passive)', 把: '(object marker)', 让: 'let/make',
+  因为: 'because', 所以: 'so', 但是: 'but', 如果: 'if', 这: 'this', 那: 'that',
+};
+
 // Short per-word gloss for interlinear display. Scans the picked entry first, then the
 // word's other entries — variant-pointer rows ("variant of 宣佈") often sit beside a real
 // entry that carries the meaning.
 function zhxTokenGloss(entry, entries) {
+  const fn = ZHX_FUNC_GLOSS[entry.s] ?? ZHX_FUNC_GLOSS[entry.t];
+  if (fn) return fn;
   for (const e of [entry, ...(entries ?? []).filter((x) => x !== entry)]) {
     for (const d of e.d) {
       if (/^CL:/.test(d) || /^(?:variant of|old variant of|see )/.test(d)) continue;
