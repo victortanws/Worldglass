@@ -72,6 +72,11 @@
     .selline.alpha { font-size: 17px; line-height: 1.85; }
     .selline.alpha[dir="rtl"] { font-size: 20px; line-height: 2; }
     .selline .lnk { padding: 0 1px; }
+    /* Interlinear columns: reading above (ruby), word, meaning below */
+    .tok-col { display: inline-flex; flex-direction: column; align-items: center; vertical-align: top; margin: 0 3px 5px 1px; max-width: 110px; }
+    .tok-col .lnk { align-self: center; }
+    .tok-g { font-size: 10.5px; line-height: 1.25; color: #8a8781; max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .selline.alpha .tok-col { margin-right: 7px; }
     .gram { margin: 0 0 7px; font-size: 12.5px; color: #3a6ea5; }
     .gram .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
     .gram .gram-l { font-weight: 600; border-radius: 4px; padding: 0 2px; }
@@ -178,6 +183,7 @@
       button.rd-chip:hover { border-color: #8ab4e8; color: #8ab4e8; }
       button.rd-chip.on { background: #2f3d50; border-color: #8ab4e8; color: #8ab4e8; }
       .rd-sep { background: #45443c; }
+      .tok-g { color: #a8a496; }
       .zhx-fab { background: #26251f; border-color: #3f5876; color: #8ab4e8; }
       .zhx-rbar { background: #26251f; border-color: #3f5876; }
       .zhx-rbar-go { color: #8ab4e8; } .zhx-rbar-go:hover { background: #2f3d50; }
@@ -319,10 +325,24 @@
     return holder;
   }
 
-  function renderTokens(tokens, container) {
+  // withGloss: interlinear mode for the selection line — each word becomes a small column
+  // (reading above via ruby where it exists, word, short meaning below), so a whole
+  // sentence can be understood by reading across without clicking word by word.
+  function renderTokens(tokens, container, withGloss) {
     for (const tok of tokens) {
-      if (tok.han) container.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang));
-      else container.append(tok.w);
+      if (!tok.han) { container.append(tok.w); continue; }
+      const node = rubyNode(tok.w, tok.p, true, tok.f, tok.lang);
+      if (withGloss && tok.g) {
+        const col = document.createElement('span');
+        col.className = 'tok-col';
+        const gl = document.createElement('span');
+        gl.className = 'tok-g';
+        gl.textContent = tok.g;
+        col.append(node, gl);
+        container.appendChild(col);
+      } else {
+        container.appendChild(node);
+      }
     }
   }
 
@@ -1115,11 +1135,11 @@
     // 'auto' lets the browser bidi-order each run, so an RTL run (Hebrew/Arabic) inside a
     // mixed selection reads correctly alongside LTR runs.
     line.setAttribute('dir', !mixed && meta().dir === 'rtl' ? 'rtl' : 'auto');
-    renderTokens(tokens, line);
+    renderTokens(tokens, line, true);
     body.appendChild(line);
     const hint = document.createElement('div');
     hint.className = 'hint';
-    hint.textContent = `${hanWords.length} words — click any word for its definition`
+    hint.textContent = `${hanWords.length} words — click any for its full entry`
       + (truncated ? ` (long selection: showing the first ${MAX_SELECTION} characters)` : '');
     body.appendChild(hint);
 

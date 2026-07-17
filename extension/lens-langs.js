@@ -129,6 +129,7 @@ function zhxEnsureDict() {
 // CEDICT numbered pinyin, lowercased. This can't be context-perfect (single-char
 // readings are context-dependent) but the most-frequent reading is the best default.
 const ZHX_PRIORITY = {
+  骑: 'qi2',
   行: 'xing2', 重: 'zhong4', 还: 'hai2', 差: 'cha4', 都: 'dou1', 长: 'chang2',
   中: 'zhong1', 教: 'jiao1', 好: 'hao3', 了: 'le5', 着: 'zhe5', 得: 'de5',
   地: 'de5', 会: 'hui4', 为: 'wei4', 要: 'yao4', 少: 'shao3', 发: 'fa1',
@@ -220,6 +221,26 @@ function zhxFamily(ch, exclude, mode, limit) {
   });
 }
 
+// Short per-word gloss for interlinear display. Scans the picked entry first, then the
+// word's other entries — variant-pointer rows ("variant of 宣佈") often sit beside a real
+// entry that carries the meaning.
+function zhxTokenGloss(entry, entries) {
+  for (const e of [entry, ...(entries ?? []).filter((x) => x !== entry)]) {
+    for (const d of e.d) {
+      if (/^CL:/.test(d) || /^(?:variant of|old variant of|see )/.test(d)) continue;
+      // Strip ALL leading parenthesized register tags — 他 opens with two of them.
+      const s = d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
+        .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].trim();
+      if (s) return s.length > 22 ? s.slice(0, 21) + '…' : s;
+    }
+  }
+  return null;
+}
+
+// Rare-but-greedy words that hijack maximum matching: 在下 ("your humble servant") steals
+// 在 from 在+下周. Skip them when the following character starts a real multi-char word.
+const ZHX_SEG_DEMOTE = new Set(['在下', '中将', '天下人', '出新']);
+
 function zhxSegmentRun(run, mode) {
   const tokens = [];
   let i = 0;
@@ -227,7 +248,17 @@ function zhxSegmentRun(run, mode) {
     let word = null;
     for (let len = Math.min(zhxMaxLen, run.length - i); len >= 1; len--) {
       const cand = run.slice(i, i + len);
-      if (zhxIndex.has(cand)) { word = cand; break; }
+      if (!zhxIndex.has(cand)) continue;
+      if (ZHX_SEG_DEMOTE.has(cand)) {
+        // Only take the demoted word if no better word starts at its second character.
+        let better = false;
+        for (let l2 = Math.min(zhxMaxLen, run.length - i - 1); l2 >= 2; l2--) {
+          if (zhxIndex.has(run.slice(i + 1, i + 1 + l2))) { better = true; break; }
+        }
+        if (better) continue;
+      }
+      word = cand;
+      break;
     }
     if (!word) {
       tokens.push({ w: run[i], p: zhxReadingFor(mode, null, run[i]), han: true, h: zhxHsk[run[i]] ?? 0 });
@@ -235,7 +266,7 @@ function zhxSegmentRun(run, mode) {
     } else {
       const entries = zhxIndex.get(word);
       const entry = zhxPickEntry(word, entries);
-      tokens.push({ w: word, p: zhxReadingFor(mode, entry.p, word, entry.s, entry.t), han: true, h: zhxHsk[word] ?? 0 });
+      tokens.push({ w: word, p: zhxReadingFor(mode, entry.p, word, entry.s, entry.t), g: zhxTokenGloss(entry, entries), han: true, h: zhxHsk[word] ?? 0 });
       i += word.length;
     }
   }
@@ -696,9 +727,14 @@ function zhxSegmentRun(run) {
     const headword = entry.k.length && hasKanji ? entry.k[0] : hit.matched;
     const reading = zhxKataToHira(entry.r[0]);
     const f = hasKanji ? zhxFurigana(merged, headword, entry.r[0]) : [[merged, null]];
+    // Short gloss for interlinear display. Bare particles must NOT fall through to noun
+    // homographs (は → 羽 "feather"); they get fixed grammatical glosses.
+    const particle = ZHX_PARTICLE_GLOSS[merged];
+    const gl = particle ?? (entry.s[0] ?? '').split(/[;(]/)[0].trim();
     tokens.push({
       w: merged,
       p: hasKanji ? reading : null,
+      g: gl ? (gl.length > 22 ? gl.slice(0, 21) + '…' : gl) : null,
       han: true,
       h: 0,
       f,
@@ -708,6 +744,14 @@ function zhxSegmentRun(run) {
   }
   return tokens;
 }
+
+const ZHX_PARTICLE_GLOSS = {
+  は: '(topic)', が: '(subject)', を: '(object)', に: 'to/at', で: 'at/by', と: 'and/with',
+  も: 'also', の: 'of', へ: 'to', か: '(question)', ね: 'right?', よ: '(emphasis)',
+  から: 'from', まで: 'until', より: 'than', だ: 'is', です: 'is', な: '(adj)',
+  // Homographs whose JMdict-common ordering misleads at token level.
+  本: 'book', 中: 'inside', 方: 'way/person',
+};
 
 function zhxTokenize(text) {
   const tokens = [];
@@ -1080,12 +1124,29 @@ function zhxFamily(syl, exclude, limit, freq) {
   }));
 }
 
+// Short gloss for interlinear display: resolve the eojeol through the stemmer (particles
+// peel, endings reverse) and shorten the base entry's first sense.
+function zhxTokenGloss(run) {
+  let hit = zhxLookupStem(run);
+  if (!hit) return null;
+  let g = hit.entries[0].g ?? '';
+  // Chase one level of "topic-marked form of 저"-style pointers to the base's meaning.
+  const ref = g.match(/form of\s+(\S+)\s*$/);
+  if (ref) {
+    const base = zhxIndex.get(ref[1]);
+    if (base?.[0]?.g) g = base[0].g;
+  }
+  const s = g.replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+  if (!s) return null;
+  return s.length > 22 ? s.slice(0, 21) + '…' : s;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_HANGUL_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
-    tokens.push({ w: m[0], p: zhxRomanizeRun(m[0]), han: true, h: 0 });
+    tokens.push({ w: m[0], p: zhxRomanizeRun(m[0]), g: zhxTokenGloss(m[0]), han: true, h: 0 });
     last = m.index + m[0].length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1230,7 +1291,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1264,18 +1325,42 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { 'عن': 'about', 'في': 'in', 'من': 'from', 'إلى': 'to', 'الى': 'to', 'على': 'on', 'و': 'and', 'هذا': 'this', 'هذه': 'this', 'ذلك': 'that', 'أن': 'that', 'ان': 'that', 'لا': 'not', 'ما': 'what/not', 'هو': 'he', 'هي': 'she', 'مع': 'with', 'كل': 'every/all', 'قد': '(perfective)', 'لم': 'did not', 'أو': 'or' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit || hit.risky) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: zhxTokenReading(run), han: true, h: 0 });
+    tokens.push({ w: run, p: zhxTokenReading(run), g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
   return tokens;
 }
+
+
+
 
 async function zhxHandle(msg) {
   await zhxEnsureDict();
@@ -1285,19 +1370,23 @@ async function zhxHandle(msg) {
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = null;
+    const defs = list.map((e) => e.g).slice(0, 8);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
       redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs }],
       chars: [],
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("ar", "sentences.json")
@@ -1356,7 +1445,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1390,13 +1479,34 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { 'د': 'at/in', 'دان': 'and', 'يڠ': 'which/that', 'ايت': 'that', 'اين': 'this', 'ک': 'to', 'دري': 'from', 'ڤد': 'at/on', 'اونتوق': 'for', 'دڠن': 'with', 'تيدق': 'not', 'اکن': 'will', 'سايا': 'I', 'دي': 'he/she', 'بوکو': 'book' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit || hit.risky) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: (zhxIndex.get(zhxBare(run)) ?? [])[0]?.w ?? null, han: true, h: 0 });
+    tokens.push({ w: run, p: (zhxIndex.get(zhxBare(run)) ?? [])[0]?.w ?? null, g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1462,7 +1572,27 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    // Unified build: fill unglossed Jawi tokens from the Malay module via the same
+    // schwa-reconstruction used by lookups — marked \u2248 because it is a reconstruction.
+    const msSeg = self.LENS && self.LENS.get && self.LENS.get('ms');
+    if (msSeg) {
+      for (const toks of out) {
+        for (const t of toks) {
+          if (!t.han || t.g) continue;
+          for (const cand of zhxRumiCandidates(t.w)) {
+            if (cand.length < 2) continue;
+            const r = await msSeg.handle({ type: 'lookup', word: cand, lang: 'ms' });
+            if (r && r.found && !r.tentative && !/^\(character\)/.test(r.entries[0]?.defs?.[0] ?? '')) {
+              const s = (r.entries[0].defs[0] ?? '').replace(/^\([^)]{0,26}\)\s*/, '').split(/[;,(]/)[0].trim();
+              if (s) { t.g = '\u2248' + (s.length > 20 ? s.slice(0, 19) + '\u2026' : s); if (!t.p) t.p = cand; }
+              break;
+            }
+          }
+        }
+      }
+    }
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("jawi", "sentences.json")
@@ -1553,7 +1683,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1587,18 +1717,42 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { 'עם': 'with', 'של': 'of', 'את': '(object)', 'אל': 'to', 'על': 'on/about', 'לא': 'not', 'זה': 'this', 'זאת': 'this', 'הוא': 'he', 'היא': 'she', 'אני': 'I', 'אתה': 'you', 'הם': 'they', 'יש': 'there is', 'אין': 'there is no', 'גם': 'also', 'רק': 'only', 'כל': 'every/all', 'מה': 'what', 'מי': 'who' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: zhxTokenReading(run), han: true, h: 0 });
+    tokens.push({ w: run, p: zhxTokenReading(run), g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
   return tokens;
 }
+
+
+
 
 async function zhxHandle(msg) {
   await zhxEnsureDict();
@@ -1608,19 +1762,23 @@ async function zhxHandle(msg) {
       return { found: false, word: msg.word, entries: [], chars: [] };
     }
     const list = zhxRankList(hit.list);
+    const gram = null;
+    const defs = list.map((e) => e.g).slice(0, 8);
     return {
       found: true,
       word: msg.word,
       base: hit.matched !== msg.word && hit.matched !== msg.word.toLowerCase() ? hit.matched : undefined,
       tentative: !!hit.risky,
       redup: zhxRedup(msg.word),
+      gram: gram ? { f: gram.f, l: gram.l } : undefined,
       hsk: 0,
-      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs: list.map((e) => e.g).slice(0, 8) }],
+      entries: [{ s: list[0].w, t: list[0].w, p: list[0].x || null, defs }],
       chars: [],
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("he", "sentences.json")
@@ -1682,7 +1840,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1716,13 +1874,34 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', des: 'some', de: 'of', du: 'of the', et: 'and', en: 'in', est: 'is', sont: 'are', que: 'that', qui: 'who/that', dans: 'in', avec: 'with', pour: 'for', au: 'to the', aux: 'to the', sur: 'on', pas: 'not', ne: 'not', je: 'I', il: 'he/it', elle: 'she', nous: 'we', vous: 'you', ils: 'they', ce: 'this', mais: 'but', ou: 'or', 'où': 'where' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit || hit.risky) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: null, han: true, h: 0 });
+    tokens.push({ w: run, p: null, g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1758,6 +1937,7 @@ function zhxCompound(phrase) {
   return null;
 }
 
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
@@ -1788,7 +1968,8 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("fr", "sentences.json")
@@ -1850,7 +2031,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1884,13 +2065,34 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit || hit.risky) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: null, han: true, h: 0 });
+    tokens.push({ w: run, p: null, g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -1926,6 +2128,7 @@ function zhxCompound(phrase) {
   return null;
 }
 
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
@@ -1956,7 +2159,8 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("de", "sentences.json")
@@ -2018,7 +2222,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2052,13 +2256,34 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', una: 'a', de: 'of', del: 'of the', en: 'in', y: 'and', es: 'is', son: 'are', que: 'that', con: 'with', por: 'for/by', para: 'for', al: 'to the', no: 'not', se: '(reflexive)', su: 'his/her/its', sus: 'their', yo: 'I', 'él': 'he', ella: 'she', pero: 'but', o: 'or', como: 'like/as', 'más': 'more', muy: 'very', toda: 'all', todo: 'all' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit || hit.risky) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: null, han: true, h: 0 });
+    tokens.push({ w: run, p: null, g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -2094,6 +2319,7 @@ function zhxCompound(phrase) {
   return null;
 }
 
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
@@ -2124,7 +2350,8 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("es", "sentences.json")
@@ -2224,7 +2451,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2258,13 +2485,34 @@ function zhxRedup(word) {
   return undefined;
 }
 
+// Interlinear gloss: a short per-word meaning attached to selection tokens, so a whole
+// sentence can be understood by reading ACROSS the line instead of clicking each word.
+// Uses the full candidate machinery (case, elision, affix stripping), prefers a real
+// sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
+// and stays silent rather than guessing on risky matches.
+const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', untuk: 'for', dengan: 'with', yang: 'which/that', dan: 'and', atau: 'or', tidak: 'not', tak: 'not', akan: 'will', sudah: 'already', telah: 'has/have', adalah: 'is', ialah: 'is', itu: 'that', ini: 'this', saya: 'I', dia: 'he/she', kami: 'we', kita: 'we', mereka: 'they', juga: 'also', ada: 'there is', buku: 'book', bagi: 'for', oleh: 'by', dalam: 'in/inside', banyak: 'many', semua: 'all' };
+function zhxTokenGloss(run) {
+  const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
+  if (fg) return fg;
+  const hit = zhxLookupWord(run);
+  if (!hit || hit.risky) return null;
+  for (const e of zhxRankList(hit.list)) {
+    let s = e.g ?? '';
+    const tail = s.match(/\u2014\s*(.+)$/);
+    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+  }
+  return null;
+}
+
 function zhxTokenize(text) {
   const tokens = [];
   let last = 0;
   for (const m of text.matchAll(ZHX_WORD_RUN)) {
     if (m.index > last) tokens.push({ w: text.slice(last, m.index), p: null, han: false });
     const run = m[0];
-    tokens.push({ w: run, p: null, han: true, h: 0 });
+    tokens.push({ w: run, p: null, g: zhxTokenGloss(run), han: true, h: 0 });
     last = m.index + run.length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
@@ -2281,6 +2529,7 @@ function zhxGrammar(list) {
   }
   return null;
 }
+
 
 
 async function zhxHandle(msg) {
@@ -2307,7 +2556,8 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'segmentBatch') {
-    return msg.texts.map(zhxTokenize);
+    const out = msg.texts.map(zhxTokenize);
+    return out;
   }
   if (msg.type === 'examples') {
     zhxSentPromise ??= self.LENS.fetchData("ms", "sentences.json")
