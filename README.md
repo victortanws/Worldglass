@@ -39,6 +39,27 @@ touch a server — no account, no analytics, no tracking.
 The landing / about page lives in [`docs/`](docs/) and is a single self-contained HTML
 file. To publish it with GitHub Pages: **Settings → Pages → Source: `main` / `/docs`**.
 
+## Development & releases
+
+**This repo is the canonical home of the shipping product.** `extension/` is generated —
+don't edit it by hand. Source code, dictionaries, and the build pipeline live in the
+private `ci-analyzer` repo (`~/ci-analyzer`); build from there directly into this repo:
+
+```bash
+cd ~/ci-analyzer
+OUT=~/Worldglass/extension node scripts/build-lens.mjs           # full build (this repo)
+SLIM=1 OUT=~/Worldglass/dist/slim node scripts/build-lens.mjs    # Chrome Web Store build
+cd ~/Worldglass/dist/slim && zip -qr ../worldglass-vX.Y.Z-store.zip . -x "*.DS_Store"
+```
+
+The **slim build** omits the four largest dictionaries (es / ja / fr / de — 83% of the
+payload); they download once on first use from this repo's raw URLs
+(`LENS.PACK_BASE` in `lens-core.js`) and cache in IndexedDB, after which lookups are as
+private and offline as bundled ones. That drops the store upload from ~270 MB to ~28 MB.
+Because packs are served from `main`, **push dictionary changes here before shipping a
+slim build that references them.** Store zips live in `dist/` (gitignored) — upload at
+the [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole).
+
 ## Attribution
 
 Worldglass bundles several open dictionaries and OCR data. See
