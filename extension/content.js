@@ -1287,6 +1287,10 @@
   // Ordered smallest-dictionary-first so the common case stays fast; the first hit wins,
   // and a slow dictionary load (Spanish is 74 MB) can't stall the popup past its timeout.
   const LATIN_PROBE = ['ms', 'fr', 'de', 'es'];
+  // Foreign dictionaries are full of English look-alikes ("languages" is an archaic
+  // French plural; chat, pain, main, content…). A hit whose senses are all archaic/
+  // variant pointers is a coincidence of spelling, not a reason to open a popup.
+  const MARGINAL_DEF_RE = /^(?:\([^)]*\)\s*)?(?:archaic|obsolete|dated|nonstandard|superseded|rare\b|alternative (?:form|spelling)|archaic spelling|obsolete spelling|misspelling)/i;
   async function probeLatinWord(text) {
     const t = text.trim();
     if (!/^[A-Za-zÀ-ÖØ-öø-ÿŒœÆæ''. -]+$/.test(t) || t.length > 40 || t.split(/\s+/).length > 3) return null;
@@ -1294,6 +1298,9 @@
     // an English sentence reads as "en" — exactly the case the probe exists for.
     const own = LensDetect.detect(t, '', null);
     if (own.lang === 'en') return null; // the selected words themselves are English
+    // Everyday English never probes: an English reader selecting "languages" on an
+    // English page is not asking for the archaic French plural of langage.
+    if (t.split(/\s+/).every((w) => LensDetect.isEnglishCommon(w))) return null;
     const hint = LensDetect.pageHint ? LensDetect.pageHint(document.documentElement.lang) : null;
     const order = LATIN_PROBE.includes(hint) ? [hint, ...LATIN_PROBE.filter((l) => l !== hint)] : LATIN_PROBE;
     for (const lang of order) {
@@ -1301,6 +1308,8 @@
         chrome.runtime.sendMessage({ type: 'lookup', word: t, lang, reading: readingMode }), 6000,
       ).catch(() => null);
       if (r?.found && !r.tentative) {
+        const defs = r.entries?.[0]?.defs ?? [];
+        if (defs.length && defs.every((d) => MARGINAL_DEF_RE.test(d))) continue; // spelling coincidence
         return { lang, supported: true, confidence: 0.5, reason: 'dict-probe', candidates: order.map((l) => ({ lang: l })) };
       }
     }
