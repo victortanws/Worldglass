@@ -1063,12 +1063,24 @@ function zhxCandidates(word) {
       if (w.length > tail.length && w.endsWith(tail)) out.add(w.slice(0, -tail.length) + base);
     }
     if (w.endsWith('니다')) { const st = zhxStripFinalB(w.slice(0, -2)); if (st) out.add(st + '다'); }
+    // One list of endings, used for BOTH stripping and labelling. They were only ever
+    // labelled before, so forms the popup could NAME it could not actually resolve:
+    // 갔지만 landed on 가지 "twig", 만나지 on "manna", 먹으면 on nothing at all.
+    for (const [tail] of ZHX_ENDING_LABELS) {
+      if (w.length > tail.length && w.endsWith(tail)) {
+        const st = w.slice(0, -tail.length);
+        out.add(st + '다');
+        enqueue(st);
+      }
+    }
     for (const c of zhxIrregularStems(w)) out.add(c);
     // Fused past marker: ㅆ as a syllable final is 았/었 contracted in (갔다 → 가다,
     // 배웠어요 → 배우…). Strip it — undoing the vowel contraction where one happened —
     // and let the normal pipeline continue.
     const SSANG = { 웠: '우', 왔: '오', 했: '하', 됐: '되', 냈: '내', 뗐: '떼', 셨: '시', 쐈: '쏘', 줬: '주', 봤: '보', 탔: '타', 쌌: '싸' };
-    for (let i = Math.max(0, w.length - 3); i < w.length; i++) {
+    // The fused past can sit anywhere, not just near the end: 갔습니다 carries it on the
+    // FIRST syllable, so a last-three-syllables window never saw it.
+    for (let i = 0; i < w.length; i++) {
       const d = zhxDecompose(w[i]);
       if (d && d.final === 'ㅆ') {
         const repl = SSANG[w[i]] ?? zhxSetFinal(w[i], '');
@@ -1112,6 +1124,7 @@ const ZHX_ENDING_LABELS = [
   ['었다', 'past'], ['았다', 'past'], ['였다', 'past'], ['겠다', 'future/conjecture'],
   ['을까요', 'suggestion/question (-을까요)'], ['네요', 'mild exclamation (-네요)'], ['나요', 'soft question (-나요)'],
   ['니까', 'causal (-니까)'], ['면서', 'simultaneous (-면서)'], ['지만', 'contrast ("but")'],
+  ['지 못하다', 'inability (-지 못하다)'], ['지 않다', 'negation (-지 않다)'], ['지', 'auxiliary connector (-지)'],
   ['는데', 'background (-는데)'], ['어서', 'sequence/cause (-어서)'], ['아서', 'sequence/cause (-아서)'],
   ['으면', 'conditional'], ['면', 'conditional'], ['고', 'connective ("and")'],
 ];
@@ -1131,9 +1144,15 @@ function zhxEndingLabel(word) {
 }
 
 function zhxLookupStem(word) {
-  for (const cand of zhxCandidates(word)) {
-    const entries = zhxIndex.get(cand);
-    if (entries) return { matched: cand, entries, gram: cand !== word ? zhxEndingLabel(word) : null };
+  const cands = zhxCandidates(word);
+  // Korean dictionary form is the -다 infinitive, so a -다 candidate is far likelier to be
+  // the lemma the reader wants than a bare stem syllable that merely happens to be listed
+  // (갔습니다 resolved to the particle 가 instead of the verb 가다).
+  for (const pass of [cands.filter((c) => c.endsWith('다') && c !== word), cands]) {
+    for (const cand of pass) {
+      const entries = zhxIndex.get(cand);
+      if (entries) return { matched: cand, entries, gram: cand !== word ? zhxEndingLabel(word) : null };
+    }
   }
   return null;
 }
