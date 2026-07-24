@@ -960,7 +960,8 @@ function zhxRomanizeRun(run) {
   return out;
 }
 
-const ZHX_PARTICLES = ['에서는', '에서도', '에서', '에게서', '에게', '한테', '께서', '으로써', '으로서', '으로', '로써', '로서', '부터', '까지', '처럼', '보다', '마다', '조차', '밖에', '하고', '이랑', '이나', '라고', '이라고', '은', '는', '이', '가', '을', '를', '에', '의', '도', '만', '와', '과', '로', '랑', '나', '요'];
+const ZHX_PARTICLES = ['에서는', '에서도', '에서', '에게서', '에게', '한테', '께서', '으로써', '으로서', '으로', '로써', '로서', '부터', '까지', '처럼', '보다', '마다', '조차', '밖에', '하고', '이랑', '이나', '라고', '이라고', '은', '는', '이', '가', '을', '를', '에', '의', '도', '만', '와', '과', '로', '랑', '나', '요',
+  '들'];  // plural marker: 친구들 → 친구, so a plural noun still reaches its singular entry
 const ZHX_VERB_TAILS = [
   ['했습니다', '하다'], ['했어요', '하다'], ['합니다', '하다'], ['했다', '하다'], ['해요', '하다'],
   ['하고', '하다'], ['하는', '하다'], ['하며', '하다'], ['하면', '하다'], ['해서', '하다'],
@@ -1147,17 +1148,56 @@ function zhxFamily(syl, exclude, limit, freq) {
 
 // Short gloss for interlinear display: resolve the eojeol through the stemmer (particles
 // peel, endings reverse) and shorten the base entry's first sense.
-function zhxTokenGloss(run) {
-  let hit = zhxLookupStem(run);
-  if (!hit) return null;
-  let g = hit.entries[0].g ?? '';
-  // Chase one level of "topic-marked form of 저"-style pointers to the base's meaning.
-  const ref = g.match(/form of\s+(\S+)\s*$/);
-  if (ref) {
-    const base = zhxIndex.get(ref[1]);
-    if (base?.[0]?.g) g = base[0].g;
+// Korean entries frequently define a form by pointing at its base rather than stating a
+// meaning — "(pron) topic-marked form of 저 (jeo): see -은". Showing that to a reader is a
+// cross-reference, not a translation. Chase the pointer to the base's own meaning,
+// preferring a sense with the same part of speech (저 is both the determiner "that" and
+// the humble pronoun "I", and the pointer's POS says which one is meant).
+const ZHX_REF_RE = /\b(?:form|adnominal|conjugation|inflection|contraction|honorific|humble|plural|abbreviation|nominalization|participle|declension|variant|alternative|sequential|connective)\s+of\s+([가-힣]+)/;
+function zhxShortSense(g) {
+  return (g ?? '').replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[;,(]/)[0].replace(/[\s.:;,]+$/, '').trim();
+}
+
+// Join up to two senses. 저 is genuinely both the determiner "that" and the humble
+// pronoun "I" — picking one is a coin flip, so show both and let the sentence decide.
+// Offering the real alternatives is the interpretable choice; guessing is the reductive one.
+function zhxSensesOf(entries, pos) {
+  const usable = entries.filter((e) => e.g && !ZHX_REF_RE.test(e.g));
+  const tagged = pos ? usable.filter((e) => e.g.startsWith('(' + pos)) : [];
+  const pool = tagged.length ? tagged : usable;
+  // kodict mixes real senses with citation lines ("example: 우리가 학교…") and restatements
+  // of the same meaning ("book" / "A book"). Only genuinely different senses earn the slot.
+  const senses = [];
+  for (const e of pool) {
+    const s = zhxShortSense(e.g);
+    if (!s || /example/i.test(s) || /[가-힣]/.test(s) || /^["'“]/.test(s)) continue;
+    if (/^(?:sense|senses|synonym|synonyms|see|idem|ditto|cf)$/i.test(s)) continue; // editorial residue
+    const key = s.toLowerCase().replace(/^(?:a|an|the|to)\s+/, '');
+    if (senses.some((x) => x.key === key || x.key.startsWith(key) || key.startsWith(x.key))) continue;
+    senses.push({ s, key });
+    if (senses.length === 2) break;
   }
-  let s = g.replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[;,(]/)[0].replace(/[\s.:;,]+$/, '').trim();
+  if (!senses.length) return null;
+  let s = senses[0].s;
+  if (senses[1] && s.length <= 12) s += ' · ' + senses[1].s;
+  return s;
+}
+
+function zhxResolveRef(g, depth) {
+  const m = (g ?? '').match(ZHX_REF_RE);
+  if (!m || (depth ?? 0) >= 2) return null;
+  const list = zhxIndex.get(m[1]);
+  if (!list) return null;
+  const pos = ((g.match(/^\(([^)]+)\)/) ?? [])[1] ?? '').split(/[\s,]/)[0];
+  return zhxSensesOf(list, pos) ?? zhxResolveRef(list[0]?.g ?? '', (depth ?? 0) + 1);
+}
+
+function zhxTokenGloss(run) {
+  const hit = zhxLookupStem(run);
+  if (!hit) return null;
+  // An entry that states a meaning beats one that only points elsewhere; if every entry
+  // is a pointer, follow it rather than showing the reader a cross-reference.
+  const s = zhxSensesOf(hit.entries) ?? zhxResolveRef(hit.entries[0]?.g ?? '');
   if (!s) return null;
   return s.length > 26 ? s.slice(0, 25) + '…' : s;
 }
