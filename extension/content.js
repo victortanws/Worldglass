@@ -111,6 +111,8 @@
     .ex .en { font-size: 12px; color: #6b6960; }
     .tr-row { border-top: 1px solid #ece9e2; margin-top: 8px; padding-top: 8px; }
     .tr-out { font-size: 13px; color: #1f1e1c; margin-top: 6px; }
+    .tr-out a.tr-ext { color: #3a6ea5; text-decoration: none; white-space: nowrap; }
+    .tr-out a.tr-ext:hover { text-decoration: underline; }
     button.act { all: unset; cursor: pointer; font-size: 12px; color: #3a6ea5; border: 1px solid #c9d8ea; border-radius: 6px; padding: 2px 9px; }
     button.act:hover { background: #e3edfb; }
     button.icon { all: unset; cursor: pointer; font-size: 14px; color: #6b6960; padding: 2px 4px; border-radius: 5px; align-self: center; }
@@ -165,6 +167,7 @@
       .fam-h { color: #a8a496; }
       button.fam-toggle, .fam-w .fp { color: #8ab4e8; }
       .tr-out { color: #ece9e2; }
+      .tr-out a.tr-ext { color: #8ab4e8; }
       button.nav, button.icon { color: #b5b2a6; }
       button.nav:hover, button.icon:hover { background: #3a3931; }
       button.icon.on { color: #efb75a; }
@@ -710,20 +713,51 @@
     ]);
   }
 
+  // Chrome's on-device Translator fails for several distinct reasons — no API (old
+  // browser), an unsupported language PAIR (the on-device model covers far fewer pairs
+  // than translate.google.com; Malay→English may simply not be in the set), a model
+  // still downloading, or a real error. Each gets its own message, and every failure
+  // offers an explicit, clearly-labelled Google Translate link — a user-clicked
+  // navigation, so nothing ever leaves the device silently.
+  function translateFallbackLink(text) {
+    const a = document.createElement('a');
+    a.className = 'tr-ext';
+    a.href = `https://translate.google.com/?sl=auto&tl=en&op=translate&text=${encodeURIComponent(text)}`;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = 'Open in Google Translate ↗';
+    return a;
+  }
   async function translateInto(text, out) {
     out.textContent = 'Translating…';
-    const pair = { sourceLanguage: meta().tr, targetLanguage: 'en' };
+    const fail = (msg) => {
+      out.textContent = `${msg} `;
+      out.appendChild(translateFallbackLink(text));
+    };
     try {
-      if (!('Translator' in self)) throw new Error('no-api');
-      const availability = await withTimeout(Translator.availability(pair), 4000);
-      if (availability === 'unavailable') throw new Error('no-model');
+      if (!('Translator' in self)) {
+        return fail("This browser doesn't expose Chrome's built-in translator (desktop Chrome 138+).");
+      }
+      // Translate into the browser's UI language where possible, falling back to English.
+      const ui = (navigator.language || 'en').split('-')[0];
+      let pair = { sourceLanguage: meta().tr, targetLanguage: ui !== meta().tr ? ui : 'en' };
+      let availability = await withTimeout(Translator.availability(pair), 4000);
+      if (availability === 'unavailable' && pair.targetLanguage !== 'en') {
+        pair = { sourceLanguage: meta().tr, targetLanguage: 'en' };
+        availability = await withTimeout(Translator.availability(pair), 4000);
+      }
+      if (availability === 'unavailable') {
+        return fail(`Chrome's on-device translator doesn't cover ${meta().name} → English yet — that's the model's pair list, not your browser.`);
+      }
       const ready = availability === 'available';
-      if (!ready) out.textContent = 'Downloading translation model (first use only)…';
+      if (!ready) out.textContent = 'Downloading the translation model (one-time)…';
       const translator = await withTimeout(Translator.create(pair), ready ? 15000 : 120000);
       out.textContent = await withTimeout(translator.translate(text), 30000);
     } catch (err) {
       console.debug('[zhx] translate failed:', err?.message);
-      out.textContent = 'On-device translation is unavailable in this browser. It needs Chrome 138+ with the built-in translator model.';
+      fail(err?.message === 'timeout'
+        ? 'The translation model is taking a while (it may still be downloading — try again shortly).'
+        : `Translation failed: ${err?.message ?? 'unknown error'}.`);
     }
   }
 
