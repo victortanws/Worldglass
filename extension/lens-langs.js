@@ -242,9 +242,10 @@ function zhxTokenGloss(entry, entries) {
     for (const d of e.d) {
       if (/^CL:/.test(d) || /^(?:variant of|old variant of|see )/.test(d)) continue;
       // Strip ALL leading parenthesized register tags — 他 opens with two of them.
-      const s = d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
-        .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].trim();
-      if (s) return s.length > 22 ? s.slice(0, 21) + '…' : s;
+      let s = d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
+        .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
+      if (!s) continue;
+      return s.length > 26 ? s.slice(0, 25) + '…' : s;
     }
   }
   return null;
@@ -750,11 +751,11 @@ function zhxSegmentRun(run) {
     // Short gloss for interlinear display. Bare particles must NOT fall through to noun
     // homographs (は → 羽 "feather"); they get fixed grammatical glosses.
     const particle = ZHX_PARTICLE_GLOSS[merged];
-    const gl = particle ?? (entry.s[0] ?? '').split(/[;(]/)[0].trim();
+    let gl = particle ?? (entry.s[0] ?? '').replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
     tokens.push({
       w: merged,
       p: hasKanji ? reading : null,
-      g: gl ? (gl.length > 22 ? gl.slice(0, 21) + '…' : gl) : null,
+      g: gl ? (gl.length > 26 ? gl.slice(0, 25) + '…' : gl) : null,
       han: true,
       h: 0,
       f,
@@ -1156,9 +1157,9 @@ function zhxTokenGloss(run) {
     const base = zhxIndex.get(ref[1]);
     if (base?.[0]?.g) g = base[0].g;
   }
-  const s = g.replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[;,(]/)[0].trim();
+  let s = g.replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[;,(]/)[0].replace(/[\s.:;,]+$/, '').trim();
   if (!s) return null;
-  return s.length > 22 ? s.slice(0, 21) + '…' : s;
+  return s.length > 26 ? s.slice(0, 25) + '…' : s;
 }
 
 function zhxTokenize(text) {
@@ -1351,17 +1352,40 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { 'عن': 'about', 'في': 'in', 'من': 'from', 'إلى': 'to', 'الى': 'to', 'على': 'on', 'و': 'and', 'هذا': 'this', 'هذه': 'this', 'ذلك': 'that', 'أن': 'that', 'ان': 'that', 'لا': 'not', 'ما': 'what/not', 'هو': 'he', 'هي': 'she', 'مع': 'with', 'كل': 'every/all', 'قد': '(perfective)', 'لم': 'did not', 'أو': 'or' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
   if (fg) return fg;
+  
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -1378,6 +1402,7 @@ function zhxTokenize(text) {
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
   return tokens;
 }
+
 
 
 
@@ -1505,17 +1530,40 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { 'د': 'at/in', 'دان': 'and', 'يڠ': 'which/that', 'ايت': 'that', 'اين': 'this', 'ک': 'to', 'دري': 'from', 'ڤد': 'at/on', 'اونتوق': 'for', 'دڠن': 'with', 'تيدق': 'not', 'اکن': 'will', 'سايا': 'I', 'دي': 'he/she', 'بوکو': 'book' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
   if (fg) return fg;
+  
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -1556,6 +1604,7 @@ function zhxRumiCandidates(word) {
   }
   return [...out];
 }
+
 
 async function zhxHandle(msg) {
   await zhxEnsureDict();
@@ -1743,17 +1792,40 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { 'עם': 'with', 'של': 'of', 'את': '(object)', 'אל': 'to', 'על': 'on/about', 'לא': 'not', 'זה': 'this', 'זאת': 'this', 'הוא': 'he', 'היא': 'she', 'אני': 'I', 'אתה': 'you', 'הם': 'they', 'יש': 'there is', 'אין': 'there is no', 'גם': 'also', 'רק': 'only', 'כל': 'every/all', 'מה': 'what', 'מי': 'who' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
   if (fg) return fg;
+  
   const hit = zhxLookupWord(run);
   if (!hit) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -1770,6 +1842,7 @@ function zhxTokenize(text) {
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
   return tokens;
 }
+
 
 
 
@@ -1900,17 +1973,40 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', des: 'some', de: 'of', du: 'of the', et: 'and', en: 'in', est: 'is', sont: 'are', que: 'that', qui: 'who/that', dans: 'in', avec: 'with', pour: 'for', au: 'to the', aux: 'to the', sur: 'on', pas: 'not', ne: 'not', je: 'I', il: 'he/it', elle: 'she', nous: 'we', vous: 'you', ils: 'they', ce: 'this', mais: 'but', ou: 'or', 'où': 'where' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
   if (fg) return fg;
+  
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -1956,6 +2052,7 @@ function zhxCompound(phrase) {
   }
   return null;
 }
+
 
 
 async function zhxHandle(msg) {
@@ -2091,17 +2188,40 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
   if (fg) return fg;
+  
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -2147,6 +2267,7 @@ function zhxCompound(phrase) {
   }
   return null;
 }
+
 
 
 async function zhxHandle(msg) {
@@ -2282,17 +2403,40 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', una: 'a', de: 'of', del: 'of the', en: 'in', y: 'and', es: 'is', son: 'are', que: 'that', con: 'with', por: 'for/by', para: 'for', al: 'to the', no: 'not', se: '(reflexive)', su: 'his/her/its', sus: 'their', yo: 'I', 'él': 'he', ella: 'she', pero: 'but', o: 'or', como: 'like/as', 'más': 'more', muy: 'very', toda: 'all', todo: 'all' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
   if (fg) return fg;
+  
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -2338,6 +2482,7 @@ function zhxCompound(phrase) {
   }
   return null;
 }
+
 
 
 async function zhxHandle(msg) {
@@ -2445,7 +2590,10 @@ function zhxCandidates(word) {
       layer = next;
     }
   }
-  return [...roots];
+  // Prefer the analysis that explains MORE of the surface form: mengepalai yields both
+  // "kepala" (head → to lead) and the over-stripped "palai"→"pala" (nutmeg). Trying the
+  // longest stem first picks the real root; the surface word itself always comes first.
+  return [lower, ...[...roots].filter((r) => r !== lower).sort((a, b) => b.length - a.length)];
 }
 
 let zhxIndex = null;
@@ -2511,17 +2659,45 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', untuk: 'for', dengan: 'with', yang: 'which/that', dan: 'and', atau: 'or', tidak: 'not', tak: 'not', akan: 'will', sudah: 'already', telah: 'has/have', adalah: 'is', ialah: 'is', itu: 'that', ini: 'this', saya: 'I', dia: 'he/she', kami: 'we', kita: 'we', mereka: 'they', juga: 'also', ada: 'there is', buku: 'book', bagi: 'for', oleh: 'by', dalam: 'in/inside', banyak: 'many', semua: 'all' };
+// Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
+// the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
+// trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
+// noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
+function zhxTidyGloss(raw) {
+  let s = String(raw ?? '')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
+    .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
+    .replace(/[\s.:;,]+$/, '')
+    .trim();
+  // Wiktionary lists senses in etymological, not frequency, order — "existence;
+  // condition, state" for keadaan buries the everyday meaning. When the first sense is
+  // short, carry the second alongside it so the reader gets the useful one too.
+  const senses = s.split(/\s*;\s*|\.\s+(?=[A-Z])/)
+    .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+  s = senses[0] ?? '';
+  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  if (!s) return null;
+  if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+}
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
   if (fg) return fg;
+  // A derived word absent from the dictionary is glossed from its affix frame, not from
+  // its bare root, and marked \u2248 because the meaning is composed rather than quoted.
+  if (!zhxIndex.get(run.toLowerCase())) {
+    const der = zhxMsDerive(run);
+    if (der) return '\u2248' + (der.gloss.length > 25 ? der.gloss.slice(0, 24) + '\u2026' : der.gloss);
+  }
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   for (const e of zhxRankList(hit.list)) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
-    s = s.replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;,(]/)[0].trim();
-    if (s) return s.length > 22 ? s.slice(0, 21) + '\u2026' : s;
+    const tidy = zhxTidyGloss(s);
+    if (tidy) return tidy;
   }
   return null;
 }
@@ -2552,9 +2728,93 @@ function zhxGrammar(list) {
 
 
 
+// [prefix, stem-restorations] — meN-/peN- assimilate to the root's initial consonant,
+// which is then elided (meng+karang → mengarang), so restore the candidates.
+const ZHX_MS_NASAL = [
+  ['menge', ['']], ['meng', ['', 'k']], ['meny', ['s', 'y']], ['mem', ['', 'p', 'b', 'f']],
+  ['men', ['', 't', 'd']], ['me', ['']],
+  ['penge', ['']], ['peng', ['', 'k']], ['peny', ['s', 'y']], ['pem', ['', 'p', 'b']],
+  ['pen', ['', 't', 'd']], ['pe', ['']],
+];
+// [id, label, how the frame reshapes the root's meaning]
+const ZHX_MS_FRAMES = {
+  'meN-kan': ['meN-…-kan (causative/transitive)', (g, p) => (p === 'verb' ? 'to ' + g : 'to make ' + g)],
+  'meN-i':   ['meN-…-i (applicative)',            (g) => 'to ' + g],
+  'meN-':    ['meN- (active verb)',               (g) => 'to ' + g],
+  'memper-': ['memper-…(-kan) (causative)',       (g) => 'to make more ' + g],
+  'di-':     ['di- (passive)',                    (g) => g + ' (passive)'],
+  'ber-':    ['ber- (intransitive/stative)',      (g, p) => (p === 'noun' ? 'to have ' + g : p === 'adj' ? 'to be ' + g : 'to ' + g)],
+  'ter-':    ['ter- (resultant/accidental)',      (g) => g + ' (state)'],
+  'peN-an':  ['peN-…-an (process/result noun)',   (g) => g + ' (process)'],
+  'peN-':    ['peN- (agent noun)',                (g, p) => (p === 'verb' ? 'one who ' + g : g + ' person')],
+  'per-an':  ['per-…-an (place/domain noun)',     (g) => g + ' (place)'],
+  'ke-an':   ['ke-…-an (abstract noun)',          (g) => g + ' (state)'],
+  'se-':     ['se- (one/same)',                   (g) => 'one ' + g],
+  '-an':     ['-an (result noun)',                (g) => g + ' (thing)'],
+};
+// Ordered most-specific first so memper-…-kan is not mistaken for meN-.
+function zhxMsAnalyze(word) {
+  const w = word.toLowerCase();
+  const out = [];
+  const add = (stem, frame) => { if (stem && stem.length >= 3) out.push({ stem, frame }); };
+  const suffix = (s) => (s.endsWith('kan') ? ['kan', s.slice(0, -3)] : s.endsWith('i') ? ['i', s.slice(0, -1)] : s.endsWith('an') ? ['an', s.slice(0, -2)] : ['', s]);
+  if (w.startsWith('memper') || w.startsWith('diper')) {
+    const rest = w.slice(w.startsWith('memper') ? 6 : 5);
+    add(suffix(rest)[1], 'memper-');
+  }
+  for (const [pre, restores] of ZHX_MS_NASAL) {
+    if (!w.startsWith(pre)) continue;
+    const rest = w.slice(pre.length);
+    const [suf, body] = suffix(rest);
+    const isPe = pre[0] === 'p';
+    const frame = isPe ? (suf === 'an' ? 'peN-an' : 'peN-') : (suf === 'kan' ? 'meN-kan' : suf === 'i' ? 'meN-i' : 'meN-');
+    for (const r of restores) add(r + body, frame);
+    // …and the un-suffixed root, in case the trailing -an/-i belongs to the root itself.
+    for (const r of restores) add(r + rest, isPe ? 'peN-' : 'meN-');
+  }
+  // Try the root both with and without a suffix stripped: berkesan is ber+kesan
+  // ("to have effect"), not ber+kes+an ("case"). Longest stem wins downstream.
+  const both = (rest, frame) => { add(rest, frame); add(suffix(rest)[1], frame); };
+  if (w.startsWith('di')) both(w.slice(2), 'di-');
+  if (w.startsWith('ber')) both(w.slice(3), 'ber-');
+  if (w.startsWith('ter')) both(w.slice(3), 'ter-');
+  if (w.startsWith('per') && w.endsWith('an')) add(w.slice(3, -2), 'per-an');
+  if (w.startsWith('ke') && w.endsWith('an')) add(w.slice(2, -2), 'ke-an');
+  if (w.startsWith('se')) add(w.slice(2), 'se-');
+  if (w.endsWith('an')) add(w.slice(0, -2), '-an');
+  return out;
+}
+// Resolve a derived word to {root, frame, gloss}. Longest stem first: the analysis that
+// explains more of the surface is the right one.
+function zhxMsDerive(word) {
+  const cands = zhxMsAnalyze(word).sort((a, b) => b.stem.length - a.stem.length);
+  for (const { stem, frame } of cands) {
+    const list = zhxIndex.get(stem);
+    if (!list) continue;
+    const raw = zhxRankList(list)[0].g ?? '';
+    const pos = (raw.match(/^\((\w+)/) ?? [])[1]; // kaikki tags every sense: (noun) (verb) (adj)
+    const rootGloss = zhxTidyGloss(raw);
+    if (!rootGloss) continue;
+    const [label, shape] = ZHX_MS_FRAMES[frame] ?? [frame, (g) => g];
+    const core = rootGloss.split(' · ')[0].replace(/^to /, '');
+    return { root: stem, frame, label, rootGloss, gloss: shape(core, pos) };
+  }
+  return null;
+}
+
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
+    if (!zhxIndex.get(msg.word.toLowerCase())) {
+      const der = zhxMsDerive(msg.word);
+      if (der) {
+        return { found: true, word: msg.word, base: der.root, tentative: true,
+          gram: { f: der.label, l: der.root },
+          hsk: 0,
+          entries: [{ s: msg.word, t: msg.word, p: null, defs: [der.gloss, 'built from ' + der.root + ' \u201c' + der.rootGloss + '\u201d'] }],
+          chars: [] };
+      }
+    }
     const hit = zhxLookupWord(msg.word);
     if (!hit) {
       return { found: false, word: msg.word, entries: [], chars: [] };

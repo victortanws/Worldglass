@@ -58,6 +58,9 @@
     button.nav { all: unset; cursor: pointer; color: #6b6960; font-size: 14px; padding: 2px 7px; border-radius: 6px; align-self: center; }
     button.nav:hover { background: #f0efe9; }
     .body { padding: 8px 12px 10px; max-height: 320px; overflow: auto; overscroll-behavior: contain; }
+    /* A sentence needs room to read across; a single-word entry does not. */
+    .zhx-pop[data-kind="sel"] { width: 500px; }
+    .zhx-pop[data-kind="sel"] .body { max-height: 380px; }
     .pyline { color: #3a6ea5; font-size: 13px; margin: 6px 0 2px; }
     ol.defs { margin: 4px 0 8px 18px; padding: 0; }
     ol.defs li { margin: 2px 0; }
@@ -68,15 +71,23 @@
     ruby rt { font-size: 10px; color: #8a8781; user-select: none; }
     /* CJK wraps naturally between characters; overflow-wrap only kicks in for a run that
        can't fit a line at all. (word-break: break-all butchered alphabetic words mid-word.) */
-    .selline { font-size: 21px; line-height: 2.2; overflow-wrap: anywhere; }
-    .selline.alpha { font-size: 17px; line-height: 1.85; }
-    .selline.alpha[dir="rtl"] { font-size: 20px; line-height: 2; }
+    /* Columns carry their own vertical rhythm, so the line-height only has to leave
+       headroom for ruby (furigana/pinyin) above the word. */
+    .selline { font-size: 21px; line-height: 1.5; overflow-wrap: anywhere; }
+    .selline.alpha { font-size: 17px; line-height: 1.4; }
+    .selline.alpha[dir="rtl"] { font-size: 20px; line-height: 1.6; }
     .selline .lnk { padding: 0 1px; }
-    /* Interlinear columns: reading above (ruby), word, meaning below */
-    .tok-col { display: inline-flex; flex-direction: column; align-items: center; vertical-align: top; margin: 0 3px 5px 1px; max-width: 110px; }
-    .tok-col .lnk { align-self: center; }
-    .tok-g { font-size: 10.5px; line-height: 1.25; color: #8a8781; max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .selline.alpha .tok-col { margin-right: 7px; }
+    /* Interlinear columns: reading above (ruby), word, meaning below — word and gloss
+       share a left edge (align-items:start, so RTL flips correctly), even gaps, and the
+       gloss wraps within
+       a narrow cap so a long meaning never strands its neighbours in whitespace. */
+    .tok-col { display: inline-flex; flex-direction: column; align-items: start; vertical-align: top; margin: 0 11px 9px 0; }
+    .tok-w { display: block; }
+    .tok-g { font-size: 11px; line-height: 1.3; color: #7c7970; max-width: 92px; white-space: normal;
+             overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+    .tok-g.gram { font-style: italic; opacity: .85; }
+    .tok-g:empty::after { content: '·'; opacity: .3; }
+    .selline.alpha .tok-col { margin-right: 9px; }
     .gram { margin: 0 0 7px; font-size: 12.5px; color: #3a6ea5; }
     .gram .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
     .gram .gram-l { font-weight: 600; border-radius: 4px; padding: 0 2px; }
@@ -121,8 +132,12 @@
     .lang-chip { font-size: 11px; color: #6b6960; background: #f0efe9; border-radius: 6px; padding: 1px 7px; align-self: center; white-space: nowrap; }
     .lang-chip.switchable { cursor: pointer; color: #3a6ea5; }
     .lang-chip.switchable:hover { background: #e3edfb; }
-    .zhx-fab { position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; width: 36px; height: 36px; border-radius: 50%; border: 1px solid #c9d8ea; background: #f7f6f1; color: #3a6ea5; font: 16px/1 sans-serif; cursor: pointer; opacity: .5; box-shadow: 0 2px 10px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; transition: opacity .15s ease; touch-action: none; }
-    .zhx-fab:hover { opacity: 1; }
+    .zhx-fab { position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; height: 36px; padding: 0 9px; border-radius: 18px; border: 1px solid #c9d8ea; background: #f7f6f1; color: #3a6ea5; font: 13px/1 -apple-system, sans-serif; cursor: pointer; opacity: .55; box-shadow: 0 2px 10px rgba(0,0,0,.18); display: flex; align-items: center; gap: 0; transition: opacity .15s ease, gap .15s ease; touch-action: none; white-space: nowrap; }
+    .zhx-fab:hover { opacity: 1; gap: 7px; }
+    /* Dashed frame = "snip this region", the same gesture the button starts. */
+    .zhx-fab-i { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px dashed currentColor; border-radius: 4px; font-size: 12px; flex: none; }
+    .zhx-fab-l { max-width: 0; overflow: hidden; transition: max-width .18s ease; }
+    .zhx-fab:hover .zhx-fab-l { max-width: 160px; }
     /* Review — ambient bar (quiet at the edge, never covers the page) + retrieval card */
     .zhx-reload { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 2147483647; display: flex; align-items: center; gap: 10px; background: #26251f; color: #fff; font: 13px/1.4 -apple-system, sans-serif; padding: 9px 12px 9px 16px; border-radius: 10px; box-shadow: 0 3px 16px rgba(0,0,0,.28); max-width: 92vw; }
     .zhx-reload button { all: unset; cursor: pointer; color: #b8b4aa; padding: 0 2px; }
@@ -331,24 +346,47 @@
     return holder;
   }
 
-  // withGloss: interlinear mode for the selection line — each word becomes a small column
-  // (reading above via ruby where it exists, word, short meaning below), so a whole
-  // sentence can be understood by reading across without clicking word by word.
+  // withGloss: interlinear mode for the selection line, following the typographic
+  // convention of linguistic interlinear glossed text — every word is a column whose word
+  // and gloss share a LEFT edge, on a common baseline, separated by an even gap.
+  //
+  // Three rules keep it readable as a sentence rather than a scattered table:
+  //  * every word gets a column, glossed or not, so the word row never jumps;
+  //  * punctuation rides on the preceding word ("Johor." not "Johor ." );
+  //  * the gloss is width-capped and wraps, so one long gloss can't blow a column wide
+  //    and strand its neighbours in whitespace.
   function renderTokens(tokens, container, withGloss) {
-    for (const tok of tokens) {
-      if (!tok.han) { container.append(tok.w); continue; }
-      const node = rubyNode(tok.w, tok.p, true, tok.f, tok.lang);
-      if (withGloss && tok.g) {
-        const col = document.createElement('span');
-        col.className = 'tok-col';
-        const gl = document.createElement('span');
-        gl.className = 'tok-g';
-        gl.textContent = tok.g;
-        col.append(node, gl);
-        container.appendChild(col);
-      } else {
-        container.appendChild(node);
+    if (!withGloss) {
+      for (const tok of tokens) {
+        if (tok.han) container.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang));
+        else container.append(tok.w);
       }
+      return;
+    }
+    let lastWordEl = null;
+    for (const tok of tokens) {
+      if (!tok.han) {
+        // Whitespace is carried by the column gap; punctuation joins the word before it.
+        const punct = tok.w.replace(/\s+/g, '');
+        if (!punct) continue;
+        if (lastWordEl) lastWordEl.append(punct);
+        else container.append(punct);
+        continue;
+      }
+      const col = document.createElement('span');
+      col.className = 'tok-col';
+      const wordEl = document.createElement('span');
+      wordEl.className = 'tok-w';
+      wordEl.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang));
+      const gl = document.createElement('span');
+      gl.className = 'tok-g';
+      // Purely grammatical glosses — "(topic)", "(object)" — read as annotation, not
+      // meaning, so they are set apart in italic the way IGT sets category labels apart.
+      if (tok.g && /^\(/.test(tok.g)) gl.classList.add('gram');
+      gl.textContent = tok.g ?? '';
+      col.append(wordEl, gl);
+      container.appendChild(col);
+      lastWordEl = wordEl;
     }
   }
 
@@ -1211,8 +1249,16 @@
     if (fab) { fab.style.display = ''; return; }
     fab = document.createElement('button');
     fab.className = 'zhx-fab';
-    fab.title = 'Worldglass OCR — click, then drag a box over text in an image (drag me to move)';
-    fab.textContent = '文';
+    fab.title = 'Worldglass — read text inside an image. Click, then drag a box over it. (Drag this button to move it; turn it off in the Worldglass toolbar.)';
+    // A bare 文 glyph told nobody what this does — even its author. The button now names
+    // itself: a dashed snip-frame icon that expands on hover into "Read text in an image".
+    const icon = document.createElement('span');
+    icon.className = 'zhx-fab-i';
+    icon.textContent = '文';
+    const label = document.createElement('span');
+    label.className = 'zhx-fab-l';
+    label.textContent = 'Read text in an image';
+    fab.append(icon, label);
     fab.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
       const rect = fab.getBoundingClientRect();
@@ -1229,7 +1275,11 @@
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
-        if (!moved) chrome.runtime.sendMessage({ type: 'relaySnip' }).catch(() => {});
+        if (moved) return;
+        // A dead extension context silently swallowed this click, which is exactly why the
+        // button looked broken after an extension reload. Say so instead.
+        if (!contextAlive()) { showReloadHint(); return; }
+        chrome.runtime.sendMessage({ type: 'relaySnip' }).catch(() => showReloadHint());
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
