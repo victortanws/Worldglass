@@ -1062,7 +1062,9 @@ function zhxCandidates(word) {
     for (const [tail, base] of ZHX_VERB_TAILS) {
       if (w.length > tail.length && w.endsWith(tail)) out.add(w.slice(0, -tail.length) + base);
     }
-    if (w.endsWith('니다')) { const st = zhxStripFinalB(w.slice(0, -2)); if (st) out.add(st + '다'); }
+    // -ㅂ니다 and -ㅂ시다 both fuse their ㅂ into the stem syllable (가 → 갑), so the stem
+    // only reappears once that final is peeled back off.
+    if (w.endsWith('니다') || w.endsWith('시다')) { const st = zhxStripFinalB(w.slice(0, -2)); if (st) out.add(st + '다'); }
     // One list of endings, used for BOTH stripping and labelling. They were only ever
     // labelled before, so forms the popup could NAME it could not actually resolve:
     // 갔지만 landed on 가지 "twig", 만나지 on "manna", 먹으면 on nothing at all.
@@ -1126,6 +1128,7 @@ const ZHX_ENDING_LABELS = [
   ['니까', 'causal (-니까)'], ['면서', 'simultaneous (-면서)'], ['지만', 'contrast ("but")'],
   ['지 못하다', 'inability (-지 못하다)'], ['지 않다', 'negation (-지 않다)'], ['지', 'auxiliary connector (-지)'],
   ['는데', 'background (-는데)'], ['어서', 'sequence/cause (-어서)'], ['아서', 'sequence/cause (-아서)'],
+  ['읍시다', 'propositive ("let us")'], ['시다', 'propositive ("let us")'],
   ['으면', 'conditional'], ['면', 'conditional'], ['고', 'connective ("and")'],
 ];
 function zhxEndingLabel(word) {
@@ -1242,14 +1245,43 @@ function zhxResolveRef(g, depth) {
   return zhxSensesOf(list, pos) ?? zhxResolveRef(list[0]?.g ?? '', (depth ?? 0) + 1);
 }
 
+// Labels are written for the entry panel, where there is room to spell out
+// "formal polite past". A gloss slot needs a cue, not a sentence.
+const ZHX_GRAM_SHORT = {
+  'honorific formal past': 'past·formal·hon', 'formal polite past': 'past·formal',
+  'formal polite future/intent': 'will·formal', 'formal polite question': 'formal ?',
+  'formal polite': 'formal', 'copula, formal polite': 'is·formal',
+  'formal polite (하다)': 'formal', 'polite (하다)': 'polite',
+  'honorific polite past': 'past·polite·hon', 'honorific polite': 'polite·hon',
+  'polite past': 'past·polite', 'polite future/conjecture': 'will·polite', polite: 'polite',
+  past: 'past', 'future/conjecture': 'will', 'past contrast ("but")': 'past·but',
+  'contrast ("but")': 'but', 'connective ("and")': 'and', conditional: 'if',
+  'causal (-니까)': 'because', 'simultaneous (-면서)': 'while', 'background (-는데)': 'background',
+  'sequence/cause (-어서)': 'so', 'sequence/cause (-아서)': 'so',
+  'suggestion/question (-을까요)': 'shall we?', 'mild exclamation (-네요)': '!',
+  'soft question (-나요)': '?', 'inability (-지 못하다)': 'cannot', 'negation (-지 않다)': 'not',
+  'propositive ("let us")': "let's",
+};
+// -지 is scaffolding for a following 않다/못하다, not news on its own.
+const ZHX_GRAM_SKIP = new Set(['auxiliary connector (-지)']);
+function zhxShortGram(gram) {
+  if (!gram || ZHX_GRAM_SKIP.has(gram)) return null;
+  const s = ZHX_GRAM_SHORT[gram] ?? gram;
+  return s.length > 18 ? null : s; // an unmapped mouthful is worse than silence
+}
+
 function zhxTokenGloss(run) {
   const hit = zhxLookupStem(run);
   if (!hit) return null;
   // An entry that states a meaning beats one that only points elsewhere; if every entry
   // is a pointer, follow it rather than showing the reader a cross-reference.
-  const s = zhxSensesOf(hit.entries) ?? zhxResolveRef(hit.entries[0]?.g ?? '');
+  let s = zhxSensesOf(hit.entries) ?? zhxResolveRef(hit.entries[0]?.g ?? '');
   if (!s) return null;
-  return s.length > 26 ? s.slice(0, 25) + '…' : s;
+  if (s.length > 22) s = s.slice(0, 21) + '…';
+  // 갔습니다 and 가면 both mean "to go"; what separates them is the ending. Carry it into
+  // the line so tense, politeness and clause role are readable without a click.
+  const g = zhxShortGram(hit.gram);
+  return g ? `${s} (${g})` : s;
 }
 
 function zhxTokenize(text) {
