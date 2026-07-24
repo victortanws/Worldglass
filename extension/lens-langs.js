@@ -1434,7 +1434,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1487,6 +1487,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -1494,7 +1505,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -1634,7 +1655,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1687,6 +1708,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -1694,7 +1726,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -1918,7 +1960,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1971,6 +2013,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -1978,7 +2031,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2121,7 +2184,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2174,6 +2237,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -2181,7 +2255,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2358,7 +2442,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2411,6 +2495,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -2418,7 +2513,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2595,7 +2700,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2648,6 +2753,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -2655,7 +2771,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2873,7 +2999,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2926,6 +3052,17 @@ function zhxTidyGloss(raw) {
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
     .trim();
+  // Parentheticals must go BEFORE the sense split. "book (collection of sheets of
+  // paper, bound together)" splits on the comma inside the bracket, which carries the
+  // closing paren away with it — after that no strip can match, and the reader is shown
+  // "book (collection of sheet…" where a meaning belongs. Innermost-first, a few passes
+  // for nesting; if that erases everything, the parenthetical WAS the gloss, so keep it.
+  {
+    let u = s;
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(u); i++) u = u.replace(/\s*\([^()]*\)/g, ' ');
+    u = u.replace(/\s{2,}/g, ' ').replace(/\s+([,;.])/g, '$1').replace(/[\s.:;,]+$/, '').trim();
+    if (u) s = u;
+  }
   // Wiktionary lists senses in etymological, not frequency, order — "existence;
   // condition, state" for keadaan buries the everyday meaning. When the first sense is
   // short, carry the second alongside it so the reader gets the useful one too.
@@ -2933,7 +3070,17 @@ function zhxTidyGloss(raw) {
     .map((x) => x.split(/\s*,\s*/)[0].replace(/\s*\([^)]*\)/g, '').replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
   s = senses[0] ?? '';
-  if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
+  // A second sense only earns its space if it says something new. Stripping parentheticals
+  // uncovered pairs like "to read \u00b7 to read" and "book \u00b7 books" that the bracket had
+  // been hiding. Prefix matches need a word boundary, so "park \u00b7 parking lot" survives.
+  const zhxNorm = (x) => x.toLowerCase().replace(/^to\s+/, '').replace(/e?s$/, '').trim();
+  const zhxNear = (a, b) => {
+    a = zhxNorm(a); b = zhxNorm(b);
+    if (a === b) return true;
+    const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
+    return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
+  };
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
