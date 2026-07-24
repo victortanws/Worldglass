@@ -67,6 +67,11 @@
     .cl { font-size: 12px; color: #6b6960; margin: 2px 0 6px; }
     .lnk { cursor: pointer; border-radius: 4px; }
     .lnk:hover { background: #e3edfb; }
+    /* A visible focus ring is the keyboard user's cursor — never remove it. */
+    .lnk:focus-visible, .fam-toggle:focus-visible, .rd-chip:focus-visible,
+    .rvw-opt:focus-visible, button.act:focus-visible, .zhx-fab:focus-visible {
+      outline: 2px solid #3a6ea5; outline-offset: 2px;
+    }
     ruby { ruby-position: over; }
     ruby rt { font-size: 10px; color: #8a8781; user-select: none; }
     /* CJK wraps naturally between characters; overflow-wrap only kicks in for a run that
@@ -194,6 +199,8 @@
       button.act { color: #8ab4e8; border-color: #3f5876; }
       button.act:hover { background: #2f3d50; }
       .lnk:hover { background: #2f3d50; }
+      .lnk:focus-visible, .fam-toggle:focus-visible, .rd-chip:focus-visible,
+      .rvw-opt:focus-visible, button.act:focus-visible, .zhx-fab:focus-visible { outline-color: #8ab4e8; }
       .badge { background: #3a3931; color: #b5b2a6; }
       .lang-chip { background: #3a3931; color: #b5b2a6; }
       .lang-chip.switchable { color: #8ab4e8; }
@@ -260,6 +267,16 @@
     shadow.appendChild(style);
     document.documentElement.appendChild(host);
 
+    // Keyboard equivalent of clicking a word. Space is included because the element
+    // reports itself as a button, and a button that ignores Space is a broken promise.
+    shadow.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      const target = ev.target.closest?.('.lnk, .fam-toggle, .rd-chip, .rvw-opt, .act');
+      if (!target) return;
+      ev.preventDefault();
+      target.click();
+    });
+
     shadow.addEventListener('click', (ev) => {
       const lnk = ev.target.closest('.lnk');
       if (lnk) {
@@ -288,6 +305,13 @@
     const el = document.createElement('div');
     el.className = 'zhx-pop';
     el.dataset.level = String(level);
+    // Announce the panel to assistive tech, and let it be focused so keyboard users can
+    // reach what is inside it. aria-live means the reading is spoken when it arrives,
+    // which is the whole point of the tool for a screen-reader user.
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', level === 2 ? 'Worldglass — related entry' : 'Worldglass');
+    el.setAttribute('aria-live', 'polite');
+    el.tabIndex = -1;
     shadow.appendChild(el);
     return el;
   }
@@ -343,9 +367,18 @@
   function rubyNode(word, reading, clickable, pieces, lang) {
     const holder = document.createElement('span');
     appendRuby(holder, pieces ?? [[word, reading ?? null]]);
+    // Tag the language so a screen reader switches voice instead of reading Chinese with
+    // an English one, and so the browser picks a font that renders the script properly.
+    const code = LANG_META[lang ?? currentLang]?.tr;
+    if (code) holder.setAttribute('lang', code);
     if (!clickable) return holder;
     holder.className = 'lnk';
     holder.dataset.w = word;
+    // Every clickable word is reachable and activatable from the keyboard, not just the
+    // mouse — the popup was otherwise a dead end for anyone not using a pointer.
+    holder.tabIndex = 0;
+    holder.setAttribute('role', 'button');
+    holder.setAttribute('aria-label', `${word} — look up`);
     if (lang) holder.dataset.lang = lang; // set on mixed-selection tokens so clicks use the right dict
     return holder;
   }
@@ -381,7 +414,11 @@
       col.className = 'tok-col';
       const wordEl = document.createElement('span');
       wordEl.className = 'tok-w';
-      wordEl.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang));
+      const node = rubyNode(tok.w, tok.p, true, tok.f, tok.lang);
+      // Speak the meaning with the word. The gloss sits in a sibling element, so without
+      // this a screen-reader user hears the foreign word and nothing that explains it.
+      if (tok.g) node.setAttribute('aria-label', `${tok.w} — ${tok.g}. Look up.`);
+      wordEl.appendChild(node);
       const gl = document.createElement('span');
       gl.className = 'tok-g';
       // Purely grammatical glosses — "(topic)", "(object)" — read as annotation, not
