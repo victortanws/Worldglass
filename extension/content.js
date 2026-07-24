@@ -88,6 +88,8 @@
     .tok-g.gram { font-style: italic; opacity: .85; }
     .tok-g:empty::after { content: '·'; opacity: .3; }
     .selline.alpha .tok-col { margin-right: 9px; }
+    .readrow { margin: 2px 0 4px; padding: 7px 9px; background: #f6f4ee; border-radius: 8px; font-size: 13.5px; line-height: 1.5; color: #3f3d36; }
+    .readrow .lab { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-bottom: 2px; }
     .gram { margin: 0 0 7px; font-size: 12.5px; color: #3a6ea5; }
     .gram .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
     .gram .gram-l { font-weight: 600; border-radius: 4px; padding: 0 2px; }
@@ -195,6 +197,8 @@
       .badge { background: #3a3931; color: #b5b2a6; }
       .lang-chip { background: #3a3931; color: #b5b2a6; }
       .lang-chip.switchable { color: #8ab4e8; }
+      .readrow { background: #2f2e27; color: #d8d4c9; }
+      .readrow .lab { color: #a8a496; }
       .gram { color: #8ab4e8; }
       .gram .lab { color: #a8a496; }
       .litline { color: #b5b2a6; }
@@ -1077,24 +1081,90 @@
   // Remembers the current selection so a language-override chip can re-run it.
   let selState = null;
 
+  // ---------- Routing ----------
+  // Which dictionary should answer a selection. The <html lang> attribute is the obvious
+  // signal and the least trustworthy one — Facebook serves Malay posts under lang="en" —
+  // so it ranks BELOW what the page's own text reads as, and below anything the reader has
+  // explicitly corrected on this site. Order, most reliable first:
+  //   1. script (hangul/kana/hebrew/jawi letters are decisive)
+  //   2. the reader's correction for this site   (sticky, they told us)
+  //   3. what the page's visible text reads as   (evidence, not metadata)
+  //   4. <html lang>                             (metadata, often stale or wrong)
+  //   5. evidence in the selection + its context
+  //   6. which dictionary actually knows the word
+  let sitePref = null;
+  const siteKey = () => location.hostname.replace(/^www\./, '');
+  chrome.storage.local.get('zhxSiteLang')
+    .then((c) => { sitePref = (c.zhxSiteLang ?? {})[siteKey()] ?? null; })
+    .catch(() => {});
+  async function rememberSiteLang(lang) {
+    sitePref = lang;
+    const { zhxSiteLang = {} } = await chrome.storage.local.get('zhxSiteLang').catch(() => ({}));
+    zhxSiteLang[siteKey()] = lang;
+    chrome.storage.local.set({ zhxSiteLang }).catch(() => {});
+  }
+
+  // What the page itself reads as, sampled from real paragraphs rather than metadata.
+  // Computed once per page, lazily, and only used to break ties.
+  let pagePrior;
+  function pageLangPrior() {
+    if (pagePrior !== undefined) return pagePrior;
+    pagePrior = null;
+    try {
+      const blocks = document.querySelectorAll('p, article, li, td, h1, h2, h3, blockquote, div');
+      let sample = '';
+      for (const el of blocks) {
+        if (sample.length > 4000) break;
+        if (el.querySelector('p, article, li, td, blockquote')) continue; // leaf-ish blocks only
+        const t = el.innerText;
+        if (t && t.length > 40) sample += t.slice(0, 400) + '\n';
+      }
+      if (sample.length < 60) sample = (document.body?.innerText ?? '').slice(0, 4000);
+      const d = LensDetect.detect(sample.slice(0, 200), sample, null);
+      if (d.supported && LANG_META[d.lang] && d.confidence >= 0.5) pagePrior = d.lang;
+    } catch { /* leave null */ }
+    return pagePrior;
+  }
+
+  // Ask the dictionaries which language actually knows this string, in priority order.
+  // Sequential with early exit on purpose: in a slim build an unbundled language would
+  // download its pack, and speculatively fetching four of them to answer one click is
+  // exactly the kind of thing that should never happen behind a reader's back.
+  const MARGINAL_DEF_RE = /^(?:\([^)]*\)\s*)?(?:archaic|obsolete|dated|nonstandard|superseded|rare\b|alternative (?:form|spelling)|archaic spelling|obsolete spelling|misspelling)/i;
+  async function firstDictHit(text, langs) {
+    for (const lang of langs) {
+      const r = await withTimeout(
+        chrome.runtime.sendMessage({ type: 'lookup', word: text, lang, reading: readingMode }), 6000,
+      ).catch(() => null);
+      if (!r?.found || r.tentative) continue;
+      const defs = r.entries?.[0]?.defs ?? [];
+      if (defs.length && defs.every((d) => MARGINAL_DEF_RE.test(d))) continue; // spelling coincidence
+      return lang;
+    }
+    return null;
+  }
+
   function langChip(det) {
     const chip = document.createElement('span');
     chip.className = 'lang-chip';
     chip.textContent = meta().name;
     const others = (det?.candidates ?? [])
-      .map((c) => c.lang)
+      .map((c) => (typeof c === 'string' ? c : c.lang))
       .filter((l) => l !== currentLang && LANG_META[l]);
-    if (others.length) {
-      chip.title = 'Detected — click to switch language';
-      chip.classList.add('switchable');
-      chip.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const next = others.shift();
-        others.push(currentLang);
-        currentLang = next;
-        if (selState) openSelection(selState.text, selState.getRect, selState.truncated, { lang: next, candidates: det.candidates });
-      });
+    if (!others.length) {
+      chip.title = `Detected as ${meta().name}`;
+      return chip;
     }
+    chip.classList.add('switchable');
+    chip.title = `Detected as ${meta().name} — click to switch to ${others.map((l) => LANG_META[l].name).join(' / ')}. Your choice is remembered for ${siteKey()}.`;
+    chip.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const next = others.shift();
+      others.push(currentLang);
+      currentLang = next;
+      rememberSiteLang(next); // a correction is the strongest signal there is
+      if (selState) openSelection(selState.text, selState.getRect, selState.truncated, { lang: next, candidates: [...others, next] });
+    });
     return chip;
   }
 
@@ -1218,11 +1288,31 @@
       + (truncated ? ` (long selection: showing the first ${MAX_SELECTION} characters)` : '');
     body.appendChild(hint);
 
+    // A wall of word-glosses still leaves the reader to assemble the sentence in their
+    // head. Chain the glosses into a running reading so the meaning arrives as a sentence
+    // — and because it sits directly under the interlinear, every word in it is traceable
+    // to the word above. This is a literal reading, honestly labelled: it is what the
+    // words say, not what a translator would write, and it is always available offline.
+    const glossed = tokens.filter((t) => t.han && t.g);
+    if (glossed.length >= 2) {
+      const reading = tokens.filter((t) => t.han)
+        .map((t) => (t.g ? t.g.replace(/^≈/, '').split(' · ')[0] : '…'))
+        .join(' ');
+      const rd = document.createElement('div');
+      rd.className = 'readrow';
+      const lab = document.createElement('span');
+      lab.className = 'lab';
+      lab.textContent = 'word by word';
+      rd.append(lab, reading);
+      body.appendChild(rd);
+    }
+
     const trRow = document.createElement('div');
     trRow.className = 'tr-row';
     const trBtn = document.createElement('button');
     trBtn.className = 'act';
-    trBtn.textContent = 'Translate';
+    trBtn.textContent = 'Translate this sentence';
+    trBtn.title = 'Fluent translation from your browser’s built-in translator';
     const out = document.createElement('div');
     out.className = 'tr-out';
     trBtn.addEventListener('click', () => translateInto(text, out));
@@ -1374,33 +1464,54 @@
   // Ordered smallest-dictionary-first so the common case stays fast; the first hit wins,
   // and a slow dictionary load (Spanish is 74 MB) can't stall the popup past its timeout.
   const LATIN_PROBE = ['ms', 'fr', 'de', 'es'];
-  // Foreign dictionaries are full of English look-alikes ("languages" is an archaic
-  // French plural; chat, pain, main, content…). A hit whose senses are all archaic/
-  // variant pointers is a coincidence of spelling, not a reason to open a popup.
-  const MARGINAL_DEF_RE = /^(?:\([^)]*\)\s*)?(?:archaic|obsolete|dated|nonstandard|superseded|rare\b|alternative (?:form|spelling)|archaic spelling|obsolete spelling|misspelling)/i;
-  async function probeLatinWord(text) {
+  // Whenever the script itself leaves room for doubt, the chip must offer a way out.
+  // Routing now leans on inference (page evidence, site memory), so the correction path
+  // matters more, not less — and a correction teaches the site preference.
+  const AMBIGUOUS_SETS = [LATIN_PROBE, ['zh', 'ja', 'ko'], ['ar', 'jawi']];
+  function withAlternatives(det, text) {
+    if (!det?.supported || !LANG_META[det.lang]) return det;
+    // Kana, Hangul and Hebrew letters name their language outright — nothing to offer.
+    if (det.lang === 'ja' && LensDetect.RE.kana.test(text)) return det;
+    if (det.lang === 'ko' && LensDetect.RE.hangul.test(text)) return det;
+    if (det.lang === 'he') return det;
+    const set = AMBIGUOUS_SETS.find((s) => s.includes(det.lang));
+    if (!set) return det;
+    const seen = new Set((det.candidates ?? []).map((c) => (typeof c === 'string' ? c : c.lang)));
+    const extra = set.filter((l) => l !== det.lang && !seen.has(l));
+    return extra.length ? { ...det, candidates: [...(det.candidates ?? []), ...extra] } : det;
+  }
+
+  // The full routing decision for one selection.
+  async function routeSelection(text, ctx) {
+    // The page hint we hand the detector is the best evidence we have, not <html lang>.
+    const hint = sitePref ?? pageLangPrior() ?? document.documentElement.lang ?? null;
+    const det = LensDetect.detect(text, ctx, hint);
+
+    // A non-Latin script settles it: hangul, kana, Hebrew and Jawi letters are unambiguous,
+    // and the detector already carries zh/ja/ko and ar/jawi alternatives as candidates.
+    const latinPath = !det.supported || /^(latin|english)/.test(det.reason ?? '');
+    if (!latinPath) return withAlternatives(det, text);
+
     const t = text.trim();
-    if (!/^[A-Za-zÀ-ÖØ-öø-ÿŒœÆæ''. -]+$/.test(t) || t.length > 40 || t.split(/\s+/).length > 3) return null;
-    // Judge the selection alone: detect() mixes in page context, so a foreign word inside
-    // an English sentence reads as "en" — exactly the case the probe exists for.
-    const own = LensDetect.detect(t, '', null);
-    if (own.lang === 'en') return null; // the selected words themselves are English
-    // Everyday English never probes: an English reader selecting "languages" on an
-    // English page is not asking for the archaic French plural of langage.
-    if (t.split(/\s+/).every((w) => LensDetect.isEnglishCommon(w))) return null;
-    const hint = LensDetect.pageHint ? LensDetect.pageHint(document.documentElement.lang) : null;
-    const order = LATIN_PROBE.includes(hint) ? [hint, ...LATIN_PROBE.filter((l) => l !== hint)] : LATIN_PROBE;
-    for (const lang of order) {
-      const r = await withTimeout(
-        chrome.runtime.sendMessage({ type: 'lookup', word: t, lang, reading: readingMode }), 6000,
-      ).catch(() => null);
-      if (r?.found && !r.tentative) {
-        const defs = r.entries?.[0]?.defs ?? [];
-        if (defs.length && defs.every((d) => MARGINAL_DEF_RE.test(d))) continue; // spelling coincidence
-        return { lang, supported: true, confidence: 0.5, reason: 'dict-probe', candidates: order.map((l) => ({ lang: l })) };
+    const probeable = /^[A-Za-zÀ-ÖØ-öø-ÿŒœÆæ''. -]+$/.test(t) && t.length <= 40 && t.split(/\s+/).length <= 3;
+    if (probeable) {
+      // Everyday English normally shouldn't probe ("languages" is not the archaic French
+      // plural of langage) — UNLESS this page or this reader says otherwise, because on a
+      // French page "content" really is French.
+      const known = sitePref ?? pageLangPrior();
+      const englishish = LensDetect.detect(t, '', null).lang === 'en'
+        || t.split(/\s+/).every((w) => LensDetect.isEnglishCommon(w));
+      if (!englishish || (known && known !== 'en')) {
+        const order = [...new Set([known, det.supported ? det.lang : null, ...LATIN_PROBE])]
+          .filter((l) => LATIN_PROBE.includes(l));
+        const lang = await firstDictHit(t, order);
+        if (lang) {
+          return withAlternatives({ lang, supported: true, confidence: 0.6, reason: 'dictionary',
+            candidates: order.filter((l) => l !== lang) }, text);
+        }
       }
     }
-    return null;
+    return det.supported && LANG_META[det.lang] ? withAlternatives(det, text) : null;
   }
 
   // Ambient review nudge: the trigger is the reader's own next selection (a natural pause),
@@ -1442,11 +1553,8 @@
       if (!text) return;
       maybeReviewNudge();
       const ctx = contextSample(sel.anchorNode);
-      let det = LensDetect.detect(text, ctx, document.documentElement.lang);
-      if (!det.supported || !LANG_META[det.lang]) {
-        det = await probeLatinWord(text);
-        if (!det) return;
-      }
+      const det = await routeSelection(text, ctx);
+      if (!det) return;
       currentLang = det.lang;
       const truncated = text.length > MAX_SELECTION;
       if (truncated) text = text.slice(0, MAX_SELECTION);
@@ -1476,12 +1584,14 @@
     else if (pop1) closePopup(1);
   });
 
-  window.addEventListener('zhx-ocr-open', (ev) => {
+  window.addEventListener('zhx-ocr-open', async (ev) => {
     ensureUI();
     const { text, rect } = ev.detail;
-    const det = LensDetect.detect(text, text, document.documentElement.lang);
-    if (det.supported && LANG_META[det.lang]) currentLang = det.lang;
-    openSelection(text, () => rect, false, det);
+    // Snipped text routes through the same chain as a selection — it is text like any
+    // other, and the reader's site preference should apply to it too.
+    const det = await routeSelection(text, text);
+    if (det) currentLang = det.lang;
+    openSelection(text, () => rect, false, det ?? undefined);
   });
 
   let resizeTimer = null;

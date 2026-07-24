@@ -14,6 +14,28 @@ reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: 
 script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));
 fabToggle.addEventListener('change', () => chrome.storage.local.set({ zhxFab: fabToggle.checked }));
 
+// Switching language on a popup is remembered for that site; show it here so the choice
+// is visible and reversible rather than a mystery that follows you around.
+const LANG_NAMES = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean', ar: 'Arabic', jawi: 'Jawi', he: 'Hebrew', fr: 'French', de: 'German', es: 'Spanish', ms: 'Malay' };
+const siteRow = document.getElementById('site-row');
+const siteLangEl = document.getElementById('site-lang');
+let siteHost = null;
+(async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  try { siteHost = new URL(tab.url).hostname.replace(/^www\./, ''); } catch { return; }
+  const { zhxSiteLang = {} } = await chrome.storage.local.get('zhxSiteLang');
+  const pref = zhxSiteLang[siteHost];
+  if (!pref) return;
+  siteLangEl.textContent = `${siteHost}: always ${LANG_NAMES[pref] ?? pref}`;
+  siteRow.style.display = '';
+})();
+document.getElementById('site-clear').addEventListener('click', async () => {
+  const { zhxSiteLang = {} } = await chrome.storage.local.get('zhxSiteLang');
+  delete zhxSiteLang[siteHost];
+  await chrome.storage.local.set({ zhxSiteLang });
+  siteRow.style.display = 'none';
+});
+
 const shelvesEl = document.getElementById('shelves');
 const reviewBtn = document.getElementById('review');
 const WG_KNOWN = 4;
