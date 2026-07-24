@@ -41,17 +41,21 @@
   function meta() { return LANG_META[currentLang] ?? LANG_META.zh; }
 
   const POPUP_CSS = `
-    :host { all: initial; }
+    :host { all: initial; --wg-scale: 1; }
     .zhx-pop {
       position: absolute; width: 340px; max-width: 92vw; box-sizing: border-box;
       background: #fffdf9; color: #1f1e1c; border: 1px solid #d5d2ca; border-radius: 10px;
       box-shadow: 0 8px 24px rgba(0,0,0,.16);
-      font: 14px/1.5 -apple-system, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      /* Split out of the font shorthand so the size can scale on its own; body text and
+         definitions inherit from here, so one variable moves the whole panel. */
+      font-family: -apple-system, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: calc(14px * var(--wg-scale));
+      line-height: 1.5;
       z-index: 2;
     }
     .zhx-pop[data-level="2"] { z-index: 3; width: 320px; background: #ffffff; }
     .hdr { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px 6px; border-bottom: 1px solid #ece9e2; }
-    .hdr .w { font-size: 22px; font-weight: 600; }
+    .hdr .w { font-size: calc(22px * var(--wg-scale)); font-weight: 600; }
     .hdr .py { color: #3a6ea5; }
     .hdr .var { color: #8a8781; font-size: 13px; }
     .spacer { flex: 1; }
@@ -78,8 +82,8 @@
        can't fit a line at all. (word-break: break-all butchered alphabetic words mid-word.) */
     /* Columns carry their own vertical rhythm, so the line-height only has to leave
        headroom for ruby (furigana/pinyin) above the word. */
-    .selline { font-size: 21px; line-height: 1.5; overflow-wrap: anywhere; }
-    .selline.alpha { font-size: 17px; line-height: 1.4; }
+    .selline { font-size: calc(21px * var(--wg-scale)); line-height: 1.5; overflow-wrap: anywhere; }
+    .selline.alpha { font-size: calc(17px * var(--wg-scale)); line-height: 1.4; }
     .selline.alpha[dir="rtl"] { font-size: 20px; line-height: 1.6; }
     .selline .lnk { padding: 0 1px; }
     /* Interlinear columns: reading above (ruby), word, meaning below — word and gloss
@@ -88,7 +92,7 @@
        a narrow cap so a long meaning never strands its neighbours in whitespace. */
     .tok-col { display: inline-flex; flex-direction: column; align-items: start; vertical-align: top; margin: 0 11px 9px 0; }
     .tok-w { display: block; }
-    .tok-g { font-size: 11px; line-height: 1.3; color: #7c7970; max-width: 92px; white-space: normal;
+    .tok-g { font-size: calc(11px * var(--wg-scale)); line-height: 1.3; color: #7c7970; max-width: 92px; white-space: normal;
              overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     .tok-g.gram { font-style: italic; opacity: .85; }
     .tok-g:empty::after { content: '·'; opacity: .3; }
@@ -110,7 +114,7 @@
     .nf { color: #8a8781; font-style: italic; margin: 6px 0; }
     .chars { display: flex; flex-wrap: wrap; gap: 8px 16px; border-top: 1px solid #ece9e2; padding-top: 8px; margin-top: 6px; }
     .char { max-width: 140px; }
-    .char .hz { font-size: 18px; }
+    .char .hz { font-size: calc(18px * var(--wg-scale)); }
     .char .g { font-size: 12px; color: #6b6960; }
     button.fam-toggle { all: unset; cursor: pointer; font-size: 11px; color: #3a6ea5; margin-top: 2px; display: inline-block; }
     button.fam-toggle:hover { text-decoration: underline; }
@@ -262,6 +266,7 @@
     host.id = 'zhx-host';
     host.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:2147483647;';
     shadow = host.attachShadow({ mode: 'open' });
+    host.style.setProperty('--wg-scale', String(textScale));
     const style = document.createElement('style');
     style.textContent = POPUP_CSS;
     shadow.appendChild(style);
@@ -1369,6 +1374,7 @@
   // starts a snip in place. Click = snip; drag = reposition.
   let fab = null;
   let fabOn = true;
+  let textScale = 1;
   function ensureFab() {
     if (!IS_TOP) return;
     if (!fabOn) { if (fab) fab.style.display = 'none'; return; }
@@ -1783,7 +1789,13 @@
     if (nodes.length) await annotateNodes(nodes);
   }
 
-  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto', zhxFab: true };
+  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 };
+
+  // Stroke-dense CJK at a fixed small size is illegible to a lot of readers, and there is
+  // no browser zoom that reaches inside a shadow root. One variable scales the whole panel.
+  function applyTextSize(scale) {
+    if (host) host.style.setProperty('--wg-scale', String(scale));
+  }
 
   // Re-render whatever popups are open (nested first) so a reading/script change updates
   // them live — closing the popup the user is looking at made switching feel broken.
@@ -1812,7 +1824,9 @@
     readingMode = newReading;
     scriptPref = newScript;
     fabOn = cfg.zhxFab !== false;
+    textScale = Number(cfg.zhxTextSize) || 1;
     ensureFab();
+    applyTextSize(textScale);
     if (readingChanged || scriptChanged) rerenderPopups();
     if (readingChanged && annotated) {
       revertAnnotation();
@@ -1828,7 +1842,9 @@
     readingMode = cfg.zhxReading ?? 'man';
     scriptPref = cfg.zhxScript ?? 'auto';
     fabOn = cfg.zhxFab !== false;
+    textScale = Number(cfg.zhxTextSize) || 1;
     ensureFab();
+    applyTextSize(textScale);
     if (cfg.zhxPinyin || cfg.zhxBounds) applyModes(cfg);
     else knownMax = Number(cfg.zhxHskMax) || 0;
     if (IS_TOP) setTimeout(refreshReviewBar, 1500); // gentle: surface due words shortly after load
@@ -1841,7 +1857,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes) && !('zhxScript' in changes) && !('zhxFab' in changes)) return;
+    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes) && !('zhxScript' in changes) && !('zhxFab' in changes) && !('zhxTextSize' in changes)) return;
     chrome.storage.local.get(SETTINGS).then(applyModes);
   });
 })();

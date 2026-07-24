@@ -4,15 +4,18 @@ const exportBtn = document.getElementById('export');
 
 const script = document.getElementById('script');
 const fabToggle = document.getElementById('fab');
+const textSize = document.getElementById('textsize');
 
-chrome.storage.local.get({ zhxReading: 'man', zhxScript: 'auto', zhxFab: true }).then((cfg) => {
+chrome.storage.local.get({ zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 }).then((cfg) => {
   reading.value = cfg.zhxReading;
   script.value = cfg.zhxScript;
   fabToggle.checked = cfg.zhxFab !== false;
+  textSize.value = String(cfg.zhxTextSize ?? 1);
 });
 reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: reading.value }));
 script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));
 fabToggle.addEventListener('change', () => chrome.storage.local.set({ zhxFab: fabToggle.checked }));
+textSize.addEventListener('change', () => chrome.storage.local.set({ zhxTextSize: Number(textSize.value) }));
 
 // Switching language on a popup is remembered for that site; show it here so the choice
 // is visible and reversible rather than a mystery that follows you around.
