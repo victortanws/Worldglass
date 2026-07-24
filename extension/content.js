@@ -124,6 +124,9 @@
     .zhx-fab { position: fixed; right: 16px; bottom: 16px; z-index: 2147483646; width: 36px; height: 36px; border-radius: 50%; border: 1px solid #c9d8ea; background: #f7f6f1; color: #3a6ea5; font: 16px/1 sans-serif; cursor: pointer; opacity: .5; box-shadow: 0 2px 10px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; transition: opacity .15s ease; touch-action: none; }
     .zhx-fab:hover { opacity: 1; }
     /* Review — ambient bar (quiet at the edge, never covers the page) + retrieval card */
+    .zhx-reload { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 2147483647; display: flex; align-items: center; gap: 10px; background: #26251f; color: #fff; font: 13px/1.4 -apple-system, sans-serif; padding: 9px 12px 9px 16px; border-radius: 10px; box-shadow: 0 3px 16px rgba(0,0,0,.28); max-width: 92vw; }
+    .zhx-reload button { all: unset; cursor: pointer; color: #b8b4aa; padding: 0 2px; }
+    .zhx-reload button:hover { color: #fff; }
     .zhx-rbar { position: fixed; left: 16px; bottom: 16px; z-index: 2147483646; display: flex; align-items: stretch; background: #fff; border: 1px solid #d7e0ea; border-radius: 10px; box-shadow: 0 3px 14px rgba(20,30,45,.16); overflow: hidden; max-width: 92vw; }
     .zhx-rbar-go { all: unset; cursor: pointer; padding: 8px 12px; font: 13px/1.3 -apple-system, sans-serif; color: #35618c; }
     .zhx-rbar-go:hover { background: #eef4fb; }
@@ -1359,11 +1362,32 @@
     refreshReviewBar();
   }
 
+  // Reloading an unpacked extension orphans the content script already running on open
+  // tabs: chrome.runtime.id goes undefined and every sendMessage throws "context
+  // invalidated". Rather than fail silently (looks like a broken extension), show a
+  // one-time hint to refresh — the DOM still works even when the messaging channel is dead.
+  function contextAlive() { try { return !!chrome.runtime?.id; } catch { return false; } }
+  let reloadHintShown = false;
+  function showReloadHint(getRect) {
+    if (reloadHintShown || !IS_TOP) return;
+    reloadHintShown = true;
+    ensureUI();
+    const bar = document.createElement('div');
+    bar.className = 'zhx-reload';
+    bar.textContent = 'Worldglass was updated — refresh this page (⌘/Ctrl + R) to keep using it here.';
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.addEventListener('click', () => bar.remove());
+    bar.appendChild(x);
+    shadow.appendChild(bar);
+  }
+
   document.addEventListener('mouseup', (ev) => {
     if (ev.composedPath().includes(host)) return;
     setTimeout(async () => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) { maybeReviewNudge(); return; }
+      if (!sel || sel.isCollapsed) { if (contextAlive()) maybeReviewNudge(); return; }
+      if (!contextAlive()) { showReloadHint(); return; }
       let text = selectionText(sel);
       if (!text) return;
       maybeReviewNudge();
