@@ -725,8 +725,12 @@ function zhxSegmentRun(run) {
     let consumed = 1;
     let hit = null;
     if (ZHX_KANJI_RE.test(surface)) {
+      // ICU's Japanese segmenter gives up on long inflected chains and returns them one
+      // character at a time (食べさせられた → 食|べ|さ|せ|ら|れ|た), so the rejoin window has
+      // to be long enough to put such a verb back together — a 5-segment window left it
+      // shattered into meaningless single kanji. Longest candidate is tried first.
       let ext = 0;
-      for (let j = i + 1; j < segs.length && j <= i + 4; j++) {
+      for (let j = i + 1; j < segs.length && j <= i + 9; j++) {
         if (ZHX_KANJI_RE.test(segs[j]) || !ZHX_JA_RE.test(segs[j])) break;
         ext = j - i;
       }
@@ -752,10 +756,15 @@ function zhxSegmentRun(run) {
     // homographs (は → 羽 "feather"); they get fixed grammatical glosses.
     const particle = ZHX_PARTICLE_GLOSS[merged];
     let gl = particle ?? (entry.s[0] ?? '').replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
+    if (gl.length > 22) gl = gl.slice(0, 21) + '…';
+    // 読みます and 読んだ both mean "to read", but they do not say the same thing. The
+    // deinflection chain is already known here — carry it into the line so tense, polarity
+    // and politeness are visible while reading, instead of hidden behind a click.
+    if (gl && !particle && hit.gram) gl += ' (' + zhxShortGram(hit.gram) + ')';
     tokens.push({
       w: merged,
       p: hasKanji ? reading : null,
-      g: gl ? (gl.length > 26 ? gl.slice(0, 25) + '…' : gl) : null,
+      g: gl || null,
       han: true,
       h: 0,
       f,
@@ -764,6 +773,28 @@ function zhxSegmentRun(run) {
     i += consumed;
   }
   return tokens;
+}
+
+// The full chain ("causative + passive/potential + past") is right for the entry panel but
+// too long for a gloss slot. Compress each link to a reading cue; the entry still spells
+// the grammar out in full.
+const ZHX_GRAM_SHORT = {
+  polite: 'polite', past: 'past', 'polite past': 'past·polite',
+  'polite negative': 'neg·polite', 'polite negative past': 'neg·past·polite',
+  'polite volitional': "let's·polite", negative: 'neg', 'negative past': 'neg·past',
+  'te-form': '-te', progressive: '-ing', 'progressive polite': '-ing·polite',
+  'progressive past': '-ing·past', 'progressive polite past': '-ing·past·polite',
+  causative: 'causative', passive: 'passive', 'passive/potential': 'passive',
+  volitional: "let's", imperative: 'imper.', 'desiderative (-tai)': 'want',
+  'conditional (-ba)': 'if', 'conditional (-tara)': 'if', 'inflected form': 'inflected',
+};
+function zhxShortGram(gram) {
+  let links = String(gram).split(' + ');
+  // The て-form is the scaffolding the progressive is built on, not news in its own right.
+  if (links.some((l) => l.startsWith('progressive'))) links = links.filter((l) => l !== 'te-form');
+  const parts = links.map((p) => ZHX_GRAM_SHORT[p] ?? p);
+  const s = parts.join('+');
+  return s.length > 24 ? parts[parts.length - 1] : s; // keep the outermost link if crowded
 }
 
 const ZHX_PARTICLE_GLOSS = {
