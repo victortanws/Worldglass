@@ -1434,7 +1434,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1473,6 +1473,9 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
 const ZHX_FUNC_GLOSS = { 'عن': 'about', 'في': 'in', 'من': 'from', 'إلى': 'to', 'الى': 'to', 'على': 'on', 'و': 'and', 'هذا': 'this', 'هذه': 'this', 'ذلك': 'that', 'أن': 'that', 'ان': 'that', 'لا': 'not', 'ما': 'what/not', 'هو': 'he', 'هي': 'she', 'مع': 'with', 'كل': 'every/all', 'قد': '(perfective)', 'لم': 'did not', 'أو': 'or' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
@@ -1494,6 +1497,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -1502,10 +1508,26 @@ function zhxTokenGloss(run) {
   
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
@@ -1612,7 +1634,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1651,6 +1673,9 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
 const ZHX_FUNC_GLOSS = { 'د': 'at/in', 'دان': 'and', 'يڠ': 'which/that', 'ايت': 'that', 'اين': 'this', 'ک': 'to', 'دري': 'from', 'ڤد': 'at/on', 'اونتوق': 'for', 'دڠن': 'with', 'تيدق': 'not', 'اکن': 'will', 'سايا': 'I', 'دي': 'he/she', 'بوکو': 'book' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
@@ -1672,6 +1697,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -1680,10 +1708,26 @@ function zhxTokenGloss(run) {
   
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
@@ -1874,7 +1918,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1913,6 +1957,9 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
 const ZHX_FUNC_GLOSS = { 'עם': 'with', 'של': 'of', 'את': '(object)', 'אל': 'to', 'על': 'on/about', 'לא': 'not', 'זה': 'this', 'זאת': 'this', 'הוא': 'he', 'היא': 'she', 'אני': 'I', 'אתה': 'you', 'הם': 'they', 'יש': 'there is', 'אין': 'there is no', 'גם': 'also', 'רק': 'only', 'כל': 'every/all', 'מה': 'what', 'מי': 'who' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
@@ -1934,6 +1981,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -1942,10 +1992,26 @@ function zhxTokenGloss(run) {
   
   const hit = zhxLookupWord(run);
   if (!hit) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
@@ -2055,7 +2121,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2094,6 +2160,9 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
 const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', des: 'some', de: 'of', du: 'of the', et: 'and', en: 'in', est: 'is', sont: 'are', que: 'that', qui: 'who/that', dans: 'in', avec: 'with', pour: 'for', au: 'to the', aux: 'to the', sur: 'on', pas: 'not', ne: 'not', je: 'I', il: 'he/it', elle: 'she', nous: 'we', vous: 'you', ils: 'they', ce: 'this', mais: 'but', ou: 'or', 'où': 'where' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
@@ -2115,6 +2184,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -2123,10 +2195,26 @@ function zhxTokenGloss(run) {
   
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
@@ -2270,7 +2358,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2309,7 +2397,10 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
-const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near' };
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
+const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near', habe: 'have', hast: 'have', hat: 'has', haben: 'have', habt: 'have', hatte: 'had', hatten: 'had', bin: 'am', bist: 'are', war: 'was', waren: 'were', wird: 'will', werden: 'will/become', wurde: 'was/became', kann: 'can', muss: 'must', soll: 'should', will: 'wants', mehr: 'more', schon: 'already', noch: 'still' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
@@ -2330,6 +2421,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -2338,10 +2432,26 @@ function zhxTokenGloss(run) {
   
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
@@ -2485,7 +2595,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2524,6 +2634,9 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
 const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', una: 'a', de: 'of', del: 'of the', en: 'in', y: 'and', es: 'is', son: 'are', que: 'that', con: 'with', por: 'for/by', para: 'for', al: 'to the', no: 'not', se: '(reflexive)', su: 'his/her/its', sus: 'their', yo: 'I', 'él': 'he', ella: 'she', pero: 'but', o: 'or', como: 'like/as', 'más': 'more', muy: 'very', toda: 'all', todo: 'all' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
@@ -2545,6 +2658,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -2553,10 +2669,26 @@ function zhxTokenGloss(run) {
   
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
@@ -2741,7 +2873,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|first-person|second-person|third-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2780,6 +2912,9 @@ function zhxRedup(word) {
 // Uses the full candidate machinery (case, elision, affix stripping), prefers a real
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
+// A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+
 const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', untuk: 'for', dengan: 'with', yang: 'which/that', dan: 'and', atau: 'or', tidak: 'not', tak: 'not', akan: 'will', sudah: 'already', telah: 'has/have', adalah: 'is', ialah: 'is', itu: 'that', ini: 'this', saya: 'I', dia: 'he/she', kami: 'we', kita: 'we', mereka: 'they', juga: 'also', ada: 'there is', buku: 'book', bagi: 'for', oleh: 'by', dalam: 'in/inside', banyak: 'many', semua: 'all' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
@@ -2801,6 +2936,9 @@ function zhxTidyGloss(raw) {
   if (senses[1] && s.length <= 12) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
+  // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
+  // defeats a whole-string match, so a grammar description would slip through.
+  if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
 }
 function zhxTokenGloss(run) {
@@ -2814,10 +2952,26 @@ function zhxTokenGloss(run) {
   }
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
-  for (const e of zhxRankList(hit.list)) {
+  // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
+  // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  for (const e of hit.list) {
     let s = e.g ?? '';
     const tail = s.match(/\u2014\s*(.+)$/);
-    if (ZHX_POINTER_RE.test(s)) { if (tail) s = tail[1]; else continue; }
+    if (ZHX_POINTER_RE.test(s)) {
+      // A pointer sense names the lemma; follow it. Skipping it instead let a stray
+      // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
+      if (tail) s = tail[1];
+      else {
+        const m = s.match(/\bof\s+([^\s,;()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
+          .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
+        if (!via) continue;
+        return via;
+      }
+    }
+    // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
+    // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
