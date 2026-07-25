@@ -283,6 +283,23 @@ Machine-Readable Structured Data", LREC 2022).
 - License: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)
 - Copyright: Wiktionary contributors
 
+### Indonesian entries filling Malay gaps
+
+The English Wiktionary's Malay section covers about 9,800 headwords, and the gaps include
+ordinary vocabulary: `dasar` "base", `imbang` "balanced", `seimbang` "proportional" are all
+absent. Malay entries there cross-reference Indonesian for exactly this reason ("see
+Indonesian *banding* for more information"), so Indonesian entries from the same kaikki.org
+extraction fill those holes, under two rules:
+
+1. **Only headwords Malay lacks.** Nothing Malay already defines is overwritten. This is
+   also why false friends are not a risk — `budak` (Malay "child", Indonesian "slave"),
+   `percuma` ("free" / "useless"), `pejabat` ("office" / "official") all exist in the Malay
+   data already, so a borrowed sense can never displace the Malay one.
+2. **Every borrowed entry is marked `[Indonesian]`,** shown in the entry panel. A reader is
+   never told that Indonesian is Malay.
+
+Same source, licence, and copyright as above (Indonesian Wiktionary contributors).
+
 ## Curated cultural and proper-noun set (`data/malay-culture.json`)
 
 A hand-authored set of Malaysian and Malay proper nouns and cultural terms (states,

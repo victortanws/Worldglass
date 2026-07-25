@@ -1065,6 +1065,28 @@ function zhxCandidates(word) {
     // -ㅂ니다 and -ㅂ시다 both fuse their ㅂ into the stem syllable (가 → 갑), so the stem
     // only reappears once that final is peeled back off.
     if (w.endsWith('니다') || w.endsWith('시다')) { const st = zhxStripFinalB(w.slice(0, -2)); if (st) out.add(st + '다'); }
+    // An adnominal ending turns a verb or adjective into something that describes a noun
+    // (좋다 "to be good" → 좋은 책 "a good book"). Without it 좋은 resolved to nothing.
+    // These are stripped but never LABELLED: -은/-는/-을 are spelled exactly like the topic
+    // and object particles, and on a noun that label would be plain wrong. Stripping costs
+    // nothing eitherway, since only candidates that hit the dictionary survive.
+    for (const tail of ZHX_ADNOMINAL) {
+      if (w.length > tail.length && w.endsWith(tail)) {
+        const st = w.slice(0, -tail.length);
+        out.add(st + '다');
+        enqueue(st);
+      }
+    }
+    // The adnominal can also fuse into the stem syllable as a ㄴ/ㄹ final, where no string
+    // suffix can see it: 크다 → 큰, 만들다 → 만든. Restore the plain stem and the ㄹ stem.
+    const fin = zhxDecompose(w[w.length - 1]);
+    if (fin && (fin.final === 'ㄴ' || fin.final === 'ㄹ')) {
+      const head = w.slice(0, -1);
+      const plain = zhxSetFinal(w[w.length - 1], '');
+      const rieul = zhxSetFinal(w[w.length - 1], 'ㄹ');
+      if (plain) { out.add(head + plain + '다'); enqueue(head + plain); }
+      if (rieul) out.add(head + rieul + '다');
+    }
     // One list of endings, used for BOTH stripping and labelling. They were only ever
     // labelled before, so forms the popup could NAME it could not actually resolve:
     // 갔지만 landed on 가지 "twig", 만나지 on "manna", 먹으면 on nothing at all.
@@ -1115,10 +1137,19 @@ function zhxEnsureDict() {
 // Name the ending on the surface form (longest match first). The candidate search itself
 // is pathless, so labels come from what the user actually selected; when no listed ending
 // matches, the label is omitted rather than guessed.
+// Adnominal endings, kept apart from ZHX_ENDING_LABELS because they must be stripped
+// without being named — see the note in zhxCandidates.
+const ZHX_ADNOMINAL = ['은', '는', '을', '던'];
+
 const ZHX_ENDING_LABELS = [
   ['셨습니다', 'honorific formal past'], ['었습니다', 'formal polite past'], ['았습니다', 'formal polite past'],
   ['였습니다', 'formal polite past'], ['겠습니다', 'formal polite future/intent'], ['습니까', 'formal polite question'],
-  ['습니다', 'formal polite'], ['입니다', 'copula, formal polite'],
+  ['습니다', 'formal polite'], ['입니다', 'copula, formal polite'], ['입니까', 'copula, formal question'],
+  // The polite copula is how ordinary Korean says "is", and it was missing entirely:
+  // 친구예요 resolved to nothing at all. Unlike the adnominals below, these endings are
+  // not spelled like any particle, so naming them carries no risk of a wrong label.
+  ['이었어요', 'copula, polite past'], ['이에요', 'copula, polite'], ['예요', 'copula, polite'],
+  ['이야', 'copula, casual'], ['이다', 'copula'],
   ['셨어요', 'honorific polite past'], ['세요', 'honorific polite'],
   ['었어요', 'polite past'], ['았어요', 'polite past'], ['였어요', 'polite past'],
   ['겠어요', 'polite future/conjecture'], ['합니다', 'formal polite (하다)'], ['해요', 'polite (하다)'],
@@ -1148,6 +1179,30 @@ function zhxEndingLabel(word) {
 
 function zhxLookupStem(word) {
   const cands = zhxCandidates(word);
+  // If the selected word is ITSELF a headword, that outranks anything derived from it.
+  // Deinflection cannot tell a real ㄹ-final noun from a fused adnominal, so 매일 "every
+  // day" also yields 매이다 "to be tied" — and the -다 preference below then chose the verb.
+  // Nothing needs to be guessed here: the word is in the dictionary as written.
+  // Only a STRUCTURED entry counts as being listed as written. kodict also carries scraped
+  // fragments for inflected forms — 큰 sits there glossed 'grown up"', 좋은 with no usable
+  // sense at all — and honouring those would trade a real lemma for debris.
+  const solid = (list) => Boolean(list) && list.some((e) => e.g && /^\(/.test(e.g) && !ZHX_REF_RE.test(e.g));
+  const exact = zhxIndex.get(word);
+  if (solid(exact)) {
+    // Being listed as written is not decisive when the word also reads as noun + particle.
+    // 아이가 is a real headword — the Gyeongsang "isn't it?" — but a reader meeting it in
+    // print almost always has 아이 "child" plus the subject marker. The stem must be two
+    // syllables or more before it can win: one-syllable stems collide far too readily
+    // (하나 "one" would otherwise be torn into 하 + 나).
+    let viaParticle = null;
+    for (const p of ZHX_PARTICLES) {
+      if (word.length - p.length >= 2 && word.endsWith(p)) {
+        const stem = zhxIndex.get(word.slice(0, -p.length));
+        if (solid(stem)) { viaParticle = { matched: word.slice(0, -p.length), entries: stem, gram: null }; break; }
+      }
+    }
+    return viaParticle ?? { matched: word, entries: exact, gram: null };
+  }
   // Korean dictionary form is the -다 infinitive, so a -다 candidate is far likelier to be
   // the lemma the reader wants than a bare stem syllable that merely happens to be listed
   // (갔습니다 resolved to the particle 가 instead of the verb 가다).
@@ -1214,20 +1269,52 @@ function zhxShortSense(g) {
 // Join up to two senses. 저 is genuinely both the determiner "that" and the humble
 // pronoun "I" — picking one is a coin flip, so show both and let the sentence decide.
 // Offering the real alternatives is the interpretable choice; guessing is the reductive one.
+// One kodict row can hold several senses: "(noun) friend; fellow, chap, guy".
+function zhxSenseList(g) {
+  return (g ?? '').replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(';')
+    .map((x) => x.split(/[,(]/)[0].replace(/[\s.:;,]+$/, '').trim())
+    .filter(Boolean);
+}
+
 function zhxSensesOf(entries, pos) {
   const usable = entries.filter((e) => e.g && !ZHX_REF_RE.test(e.g));
   const tagged = pos ? usable.filter((e) => e.g.startsWith('(' + pos)) : [];
   const pool = tagged.length ? tagged : usable;
+  // kodict merges a structured source with a looser one, so 친구 carries a real entry
+  // ("(noun) friend; fellow, chap, guy") alongside scraped fragments ("matey", "A friend",
+  // "\"friend\""). Taking one sense per row and moving down the list read 친구 as
+  // "friend · matey" — reaching past a good entry's own "fellow" for a stray register word
+  // from a lower-quality row. Senses come from the best tier present, and that tier is
+  // exhausted before anything below it is considered.
+  const structured = pool.filter((e) => /^\(/.test(e.g));
+  const tier = structured.length ? structured : pool;
   // kodict mixes real senses with citation lines ("example: 우리가 학교…") and restatements
   // of the same meaning ("book" / "A book"). Only genuinely different senses earn the slot.
   const senses = [];
-  for (const e of pool) {
-    const s = zhxShortSense(e.g);
-    if (!s || /example/i.test(s) || /[가-힣]/.test(s) || /^["'“]/.test(s)) continue;
-    if (/^(?:sense|senses|synonym|synonyms|see|idem|ditto|cf)$/i.test(s)) continue; // editorial residue
-    const key = s.toLowerCase().replace(/^(?:a|an|the|to)\s+/, '');
-    if (senses.some((x) => x.key === key || x.key.startsWith(key) || key.startsWith(x.key))) continue;
-    senses.push({ s, key });
+  // Pass 1 takes each entry's headline sense, so genuinely distinct entries win the second
+  // slot first — 저 is both the determiner "that" and the humble pronoun "I", and showing
+  // both is the whole point. Pass 2 falls back to further senses inside the same entry.
+  for (const pass of [0, 1]) {
+    for (const e of tier) {
+      for (const s of zhxSenseList(e.g).slice(pass, pass ? undefined : 1)) {
+        if (!s || /example/i.test(s) || /[가-힣]/.test(s) || /^["'“]/.test(s)) continue;
+        if (/^(?:sense|senses|synonym|synonyms|see|idem|ditto|cf)$/i.test(s)) continue; // editorial residue
+        // Prose ABOUT a word is not a translation of it. The looser source contributes
+        // lines like "A phrase used to form…" and "Marks a continuing action", which read
+        // as commentary in a slot the reader expects to hold a meaning.
+        if (/^(?:marks?|used|indicates?|denotes?|expresses?|a phrase|a word|an expression|a particle|a suffix|a prefix)\b/i.test(s)) continue;
+        // Structured glosses in kodict are lowercase, so a capitalised leftover in the
+        // SECOND slot is nearly always scraped debris — 둘 "two · More information",
+        // 셋 "three · Seth". Only the tail is filtered, so no word loses its only meaning,
+        // and short capitals survive because 저 "that · I" is exactly right.
+        if (senses.length && /^[A-Z]/.test(s) && (s.length > 3 || /\s/.test(s))) continue;
+        const key = s.toLowerCase().replace(/^(?:a|an|the|to)\s+/, '');
+        if (senses.some((x) => x.key === key || x.key.startsWith(key) || key.startsWith(x.key))) continue;
+        senses.push({ s, key });
+        break;
+      }
+      if (senses.length === 2) break;
+    }
     if (senses.length === 2) break;
   }
   if (!senses.length) return null;
@@ -1434,7 +1521,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1474,7 +1561,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { 'عن': 'about', 'في': 'in', 'من': 'from', 'إلى': 'to', 'الى': 'to', 'على': 'on', 'و': 'and', 'هذا': 'this', 'هذه': 'this', 'ذلك': 'that', 'أن': 'that', 'ان': 'that', 'لا': 'not', 'ما': 'what/not', 'هو': 'he', 'هي': 'she', 'مع': 'with', 'كل': 'every/all', 'قد': '(perfective)', 'لم': 'did not', 'أو': 'or' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -1483,6 +1570,11 @@ const ZHX_FUNC_GLOSS = { 'عن': 'about', 'في': 'in', 'من': 'from', 'إلى'
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -1515,7 +1607,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -1552,6 +1648,7 @@ function zhxTokenGloss(run) {
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
+  
   return null;
 }
 
@@ -1655,7 +1752,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1695,7 +1792,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { 'د': 'at/in', 'دان': 'and', 'يڠ': 'which/that', 'ايت': 'that', 'اين': 'this', 'ک': 'to', 'دري': 'from', 'ڤد': 'at/on', 'اونتوق': 'for', 'دڠن': 'with', 'تيدق': 'not', 'اکن': 'will', 'سايا': 'I', 'دي': 'he/she', 'بوکو': 'book' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -1704,6 +1801,11 @@ const ZHX_FUNC_GLOSS = { 'د': 'at/in', 'دان': 'and', 'يڠ': 'which/that', '
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -1736,7 +1838,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -1773,6 +1879,7 @@ function zhxTokenGloss(run) {
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
+  
   return null;
 }
 
@@ -1960,7 +2067,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2000,7 +2107,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { 'עם': 'with', 'של': 'of', 'את': '(object)', 'אל': 'to', 'על': 'on/about', 'לא': 'not', 'זה': 'this', 'זאת': 'this', 'הוא': 'he', 'היא': 'she', 'אני': 'I', 'אתה': 'you', 'הם': 'they', 'יש': 'there is', 'אין': 'there is no', 'גם': 'also', 'רק': 'only', 'כל': 'every/all', 'מה': 'what', 'מי': 'who' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -2009,6 +2116,11 @@ const ZHX_FUNC_GLOSS = { 'עם': 'with', 'של': 'of', 'את': '(object)', 'אל
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -2041,7 +2153,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2078,6 +2194,7 @@ function zhxTokenGloss(run) {
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
+  
   return null;
 }
 
@@ -2184,7 +2301,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2224,7 +2341,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', des: 'some', de: 'of', du: 'of the', et: 'and', en: 'in', est: 'is', sont: 'are', que: 'that', qui: 'who/that', dans: 'in', avec: 'with', pour: 'for', au: 'to the', aux: 'to the', sur: 'on', pas: 'not', ne: 'not', je: 'I', il: 'he/it', elle: 'she', nous: 'we', vous: 'you', ils: 'they', ce: 'this', mais: 'but', ou: 'or', 'où': 'where' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -2233,6 +2350,11 @@ const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', de
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -2265,7 +2387,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2301,6 +2427,16 @@ function zhxTokenGloss(run) {
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
+  }
+  // Every sense described the FORM and none named a lemma to follow: mange is listed as
+  // "first/third-person singular present indicative/subjunctive" with no "of manger" to
+  // chase. Rebuild the infinitive and read ITS meaning. Only a (verb) entry is accepted, so
+  // a chance collision with an unrelated noun cannot put a wrong gloss on the page.
+  for (const t of ["r","er"]) {
+    const cand = zhxIndex.get(run.toLowerCase() + t);
+    if (!cand) continue;
+    const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
+    if (via) return via;
   }
   return null;
 }
@@ -2442,7 +2578,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2482,7 +2618,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near', habe: 'have', hast: 'have', hat: 'has', haben: 'have', habt: 'have', hatte: 'had', hatten: 'had', bin: 'am', bist: 'are', war: 'was', waren: 'were', wird: 'will', werden: 'will/become', wurde: 'was/became', kann: 'can', muss: 'must', soll: 'should', will: 'wants', mehr: 'more', schon: 'already', noch: 'still' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -2491,6 +2627,11 @@ const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 't
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -2523,7 +2664,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2559,6 +2704,16 @@ function zhxTokenGloss(run) {
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
+  }
+  // Every sense described the FORM and none named a lemma to follow: mange is listed as
+  // "first/third-person singular present indicative/subjunctive" with no "of manger" to
+  // chase. Rebuild the infinitive and read ITS meaning. Only a (verb) entry is accepted, so
+  // a chance collision with an unrelated noun cannot put a wrong gloss on the page.
+  for (const t of ["en","n"]) {
+    const cand = zhxIndex.get(run.toLowerCase() + t);
+    if (!cand) continue;
+    const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
+    if (via) return via;
   }
   return null;
 }
@@ -2700,7 +2855,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2740,7 +2895,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', una: 'a', de: 'of', del: 'of the', en: 'in', y: 'and', es: 'is', son: 'are', que: 'that', con: 'with', por: 'for/by', para: 'for', al: 'to the', no: 'not', se: '(reflexive)', su: 'his/her/its', sus: 'their', yo: 'I', 'él': 'he', ella: 'she', pero: 'but', o: 'or', como: 'like/as', 'más': 'more', muy: 'very', toda: 'all', todo: 'all' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -2749,6 +2904,11 @@ const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', 
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -2781,7 +2941,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -2817,6 +2981,16 @@ function zhxTokenGloss(run) {
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
+  }
+  // Every sense described the FORM and none named a lemma to follow: mange is listed as
+  // "first/third-person singular present indicative/subjunctive" with no "of manger" to
+  // chase. Rebuild the infinitive and read ITS meaning. Only a (verb) entry is accepted, so
+  // a chance collision with an unrelated noun cannot put a wrong gloss on the page.
+  for (const t of ["ar","er","ir"]) {
+    const cand = zhxIndex.get(run.toLowerCase() + t);
+    if (!cand) continue;
+    const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
+    if (via) return via;
   }
   return null;
 }
@@ -2999,7 +3173,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -3039,7 +3213,7 @@ function zhxRedup(word) {
 // sense over a grammatical pointer (taking the pointer's lemma-gloss tail when present),
 // and stays silent rather than guessing on risky matches.
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
-const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
+const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
 const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', untuk: 'for', dengan: 'with', yang: 'which/that', dan: 'and', atau: 'or', tidak: 'not', tak: 'not', akan: 'will', sudah: 'already', telah: 'has/have', adalah: 'is', ialah: 'is', itu: 'that', ini: 'this', saya: 'I', dia: 'he/she', kami: 'we', kita: 'we', mereka: 'they', juga: 'also', ada: 'there is', buku: 'book', bagi: 'for', oleh: 'by', dalam: 'in/inside', banyak: 'many', semua: 'all' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
@@ -3048,6 +3222,11 @@ const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', unt
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
 function zhxTidyGloss(raw) {
   let s = String(raw ?? '')
+    // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
+    // panel can disclose where the sense came from. The one-line gloss has 26 characters to
+    // work with, and spending them on provenance produced "to use [Indonesian]" and the
+    // truncated "≈to make stable [Indonesi…" — the tag crowding out the meaning.
+    .replace(/\s*\[Indonesian\]\s*/g, ' ')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '')
     .replace(/^(?:acronym|initialism|abbreviation|abbr\.?|short form|clipping)\s+(?:of|for)\s+/i, '')
     .replace(/[\s.:;,]+$/, '')
@@ -3080,7 +3259,11 @@ function zhxTidyGloss(raw) {
     const [sh, lo] = a.length < b.length ? [a, b] : [b, a];
     return lo.startsWith(sh) && !/[a-z]/i.test(lo[sh.length] ?? '');
   };
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1])) s += ' \u00b7 ' + senses[1];
+  // Wiktionary's structured senses are lowercase, so a capitalised second sense is nearly
+  // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
+  // no word loses its only meaning, and short capitals survive for cases like "I".
+  const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
+  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
@@ -3093,7 +3276,7 @@ function zhxTokenGloss(run) {
   if (fg) return fg;
   // A derived word absent from the dictionary is glossed from its affix frame, not from
   // its bare root, and marked \u2248 because the meaning is composed rather than quoted.
-  if (!zhxIndex.get(run.toLowerCase())) {
+  if (!zhxMsHasMeaning(zhxIndex.get(run.toLowerCase()))) {
     const der = zhxMsDerive(run);
     if (der) return '\u2248' + (der.gloss.length > 25 ? der.gloss.slice(0, 24) + '\u2026' : der.gloss);
   }
@@ -3122,6 +3305,7 @@ function zhxTokenGloss(run) {
     const tidy = zhxTidyGloss(s);
     if (tidy) return tidy;
   }
+  
   return null;
 }
 
@@ -3209,6 +3393,18 @@ function zhxMsAnalyze(word) {
 }
 // Resolve a derived word to {root, frame, gloss}. Longest stem first: the analysis that
 // explains more of the surface is the right one.
+// A direct entry only outranks affix analysis if it actually MEANS something. Borrowing
+// Indonesian rows gave diketahui an entry reading "passive of mengetahui" — a
+// cross-reference, which silently switched off the analysis that had been explaining it as
+// di- + ke-…-i on tahu "to know". A pointer carrying its lemma's sense after an em dash
+// does count; a bare pointer does not.
+function zhxMsHasMeaning(list) {
+  return (list ?? []).some((e) => {
+    const g = e.g ?? '';
+    if (ZHX_POINTER_RE.test(g) && !/—/.test(g)) return false;
+    return Boolean(zhxTidyGloss(g));
+  });
+}
 function zhxMsDerive(word) {
   const cands = zhxMsAnalyze(word).sort((a, b) => b.stem.length - a.stem.length);
   for (const { stem, frame } of cands) {
@@ -3228,7 +3424,7 @@ function zhxMsDerive(word) {
 async function zhxHandle(msg) {
   await zhxEnsureDict();
   if (msg.type === 'lookup') {
-    if (!zhxIndex.get(msg.word.toLowerCase())) {
+    if (!zhxMsHasMeaning(zhxIndex.get(msg.word.toLowerCase()))) {
       const der = zhxMsDerive(msg.word);
       if (der) {
         return { found: true, word: msg.word, base: der.root, tentative: true,
