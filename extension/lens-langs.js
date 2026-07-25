@@ -4,6 +4,19 @@
 (function () {
 'use strict';
 
+// Dictionary payloads ship gzipped — see scripts/dictio.mjs for the size rationale.
+// Decompress on read and hand back the Response shape the call sites already expect, so
+// `.ok`, `.json()` and `.catch(() => null)` all keep working. scripts/build-lens.mjs
+// rewrites these calls to LENS.fetchData, which does the same across its three pack tiers.
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
+
 const ZHX_HAN_RE = /[㐀-䶿一-鿿豈-﫿]/;
 const ZHX_HAN_RUN = /[㐀-䶿一-鿿豈-﫿]+/g;
 
@@ -98,10 +111,10 @@ function zhxReadingFor(mode, numberedPinyin, ...wordForms) {
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
     const [res, hskRes, readRes, cantoRes] = await Promise.all([
-      self.LENS.fetchData("zh", "cedict.json"),
-      self.LENS.fetchData("zh", "hsk.json").catch(() => null),
-      self.LENS.fetchData("zh", "readings.json").catch(() => null),
-      self.LENS.fetchData("zh", "canto.json").catch(() => null),
+      self.LENS.fetchData("zh", "cedict.json.gz"),
+      self.LENS.fetchData("zh", "hsk.json.gz").catch(() => null),
+      self.LENS.fetchData("zh", "readings.json.gz").catch(() => null),
+      self.LENS.fetchData("zh", "canto.json.gz").catch(() => null),
     ]);
     zhxHsk = hskRes && hskRes.ok ? await hskRes.json() : {};
     zhxReadings = readRes && readRes.ok ? await readRes.json() : {};
@@ -442,7 +455,7 @@ async function zhxHandle(msg) {
     return msg.texts.map((t) => zhxTokenize(t, msg.reading));
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("zh", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("zh", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -461,6 +474,19 @@ self.LENS.register("zh", { handle: zhxHandle });
 // ===== ja (extension-ja) =====
 (function () {
 'use strict';
+
+// Dictionary payloads ship gzipped — see scripts/dictio.mjs for the size rationale.
+// Decompress on read and hand back the Response shape the call sites already expect, so
+// `.ok`, `.json()` and `.catch(() => null)` all keep working. scripts/build-lens.mjs
+// rewrites these calls to LENS.fetchData, which does the same across its three pack tiers.
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 
 const ZHX_KANJI_RE = /[㐀-䶿一-鿿々]/;
 const ZHX_JA_RE = /[㐀-䶿一-鿿々ぁ-ゖァ-ヺーゝゞ]/;
@@ -544,7 +570,7 @@ let zhxSegmenter = null;
 let zhxNamesPromise = null;
 
 function zhxEnsureNames() {
-  zhxNamesPromise ??= self.LENS.fetchData("ja", "names.json")
+  zhxNamesPromise ??= self.LENS.fetchData("ja", "names.json.gz")
     .then((r) => r.json())
     .then((rows) => {
       const idx = new Map();
@@ -562,8 +588,8 @@ function zhxEnsureNames() {
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
     const [dictRes, kanjiRes] = await Promise.all([
-      self.LENS.fetchData("ja", "jdict.json"),
-      self.LENS.fetchData("ja", "kanji.json").catch(() => null),
+      self.LENS.fetchData("ja", "jdict.json.gz"),
+      self.LENS.fetchData("ja", "kanji.json.gz").catch(() => null),
     ]);
     const rows = await dictRes.json();
     zhxKanji = kanjiRes && kanjiRes.ok ? await kanjiRes.json() : {};
@@ -891,7 +917,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("ja", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("ja", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -910,6 +936,19 @@ self.LENS.register("ja", { handle: zhxHandle });
 // ===== ko (extension-ko) =====
 (function () {
 'use strict';
+
+// Dictionary payloads ship gzipped — see scripts/dictio.mjs for the size rationale.
+// Decompress on read and hand back the Response shape the call sites already expect, so
+// `.ok`, `.json()` and `.catch(() => null)` all keep working. scripts/build-lens.mjs
+// rewrites these calls to LENS.fetchData, which does the same across its three pack tiers.
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 
 const ZHX_HANGUL_RE = /[가-힣]/;
 const ZHX_HANGUL_RUN = /[가-힣]+/g;
@@ -1122,7 +1161,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const res = await self.LENS.fetchData("ko", "kodict.json");
+    const res = await self.LENS.fetchData("ko", "kodict.json.gz");
     const rows = await res.json();
     zhxIndex = new Map();
     for (const [word, hanja, gloss] of rows) {
@@ -1419,7 +1458,7 @@ async function zhxHandle(msg) {
     };
   }
   if (msg.type === 'family') {
-    zhxSentPromise ??= self.LENS.fetchData("ko", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("ko", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1430,7 +1469,7 @@ async function zhxHandle(msg) {
     return msg.texts.map(zhxTokenize);
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("ko", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("ko", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1450,6 +1489,14 @@ self.LENS.register("ko", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[\u0600-\u06FF\u0750-\u077F]+/g;
 function zhxBare(w) { return (w ?? '').replace(/[\u064B-\u065F\u0670\u0640\u05B0-\u05BD\u05C1\u05C2\u05C7]/g, ''); }
 const ZHX_TR = { 'ا': 'a', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'dh', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': "'", 'غ': 'gh', 'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n', 'ه': 'h', 'و': 'w', 'ي': 'y', 'ء': "'", 'آ': 'aa', 'ة': 'a', 'ى': 'a', 'أ': 'a', 'إ': 'i', 'ئ': "'", 'ؤ': "'" };
@@ -1504,7 +1551,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("ar", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("ar", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1696,7 +1743,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("ar", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("ar", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1716,6 +1763,14 @@ self.LENS.register("ar", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[\u0600-\u06FF\u0750-\u077F]+/g;
 function zhxBare(w) { return (w ?? '').replace(/[\u064B-\u065F\u0670\u0640\u05B0-\u05BD\u05C1\u05C2\u05C7]/g, ''); }
 const ZHX_TR = { 'چ': 'c', 'ڠ': 'ng', 'ڤ': 'p', 'ݢ': 'g', 'ڽ': 'ny', 'ۏ': 'v', 'ک': 'k', 'ݣ': 'g', 'ا': 'a', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'dh', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': "'", 'غ': 'gh', 'ف': 'f', 'ق': 'k', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n', 'ه': 'h', 'و': 'w', 'ي': 'y', 'ى': 'a', 'ء': "'", 'ة': 'h', 'ڬ': 'g' };
@@ -1735,7 +1790,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("jawi", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("jawi", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -1979,7 +2034,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("jawi", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("jawi", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -1999,6 +2054,14 @@ self.LENS.register("jawi", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[\u0590-\u05FF''"]+/g;
 function zhxBare(w) { return (w ?? '').replace(/[\u064B-\u065F\u0670\u0640\u05B0-\u05BD\u05C1\u05C2\u05C7]/g, ''); }
 const ZHX_TR = { 'א': "'", 'ב': 'v', 'ג': 'g', 'ד': 'd', 'ה': 'h', 'ו': 'v', 'ז': 'z', 'ח': 'ch', 'ט': 't', 'י': 'y', 'כ': 'kh', 'ך': 'kh', 'ל': 'l', 'מ': 'm', 'ם': 'm', 'נ': 'n', 'ן': 'n', 'ס': 's', 'ע': "'", 'פ': 'f', 'ף': 'f', 'צ': 'ts', 'ץ': 'ts', 'ק': 'k', 'ר': 'r', 'ש': 'sh', 'ת': 't' };
@@ -2050,7 +2113,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("he", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("he", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -2242,7 +2305,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("he", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("he", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -2262,6 +2325,14 @@ self.LENS.register("he", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[A-Za-zÀ-ÖØ-öø-ÿŒœÆæ'\u2019-]+/g;
 function zhxBare(w) { return w; }
 function zhxTranslit() { return ''; }
@@ -2284,7 +2355,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("fr", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("fr", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -2519,7 +2590,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("fr", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("fr", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -2539,6 +2610,14 @@ self.LENS.register("fr", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[A-Za-zÀ-ÖØ-öø-ÿäöüßÄÖÜ'\u2019-]+/g;
 function zhxBare(w) { return w; }
 function zhxTranslit() { return ''; }
@@ -2561,7 +2640,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("de", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("de", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -2796,7 +2875,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("de", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("de", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -2816,6 +2895,14 @@ self.LENS.register("de", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[A-Za-zÀ-ÖØ-öø-ÿñÑáéíóúü'\u2019-]+/g;
 function zhxBare(w) { return w; }
 function zhxTranslit() { return ''; }
@@ -2838,7 +2925,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("es", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("es", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -3073,7 +3160,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("es", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("es", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
@@ -3093,6 +3180,14 @@ self.LENS.register("es", { handle: zhxHandle });
 (function () {
 'use strict';
 
+function zhxFetchDict(rel) {
+  return fetch(chrome.runtime.getURL(rel)).then(async (res) => {
+    if (!res.ok || !rel.endsWith('.gz')) return res;
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(text);
+    return { ok: true, json: async () => data };
+  });
+}
 const ZHX_WORD_RUN = /[A-Za-z][A-Za-z'-]*/g;
 function zhxBare(w) { return w; }
 function zhxTranslit() { return ''; }
@@ -3156,7 +3251,7 @@ let zhxSentPromise = null;
 
 function zhxEnsureDict() {
   zhxDictPromise ??= (async () => {
-    const rows = await (await self.LENS.fetchData("ms", "dict.json")).json();
+    const rows = await (await self.LENS.fetchData("ms", "dict.json.gz")).json();
     zhxIndex = new Map();
     const add = (key, entry) => {
       if (!key) return;
@@ -3459,7 +3554,7 @@ async function zhxHandle(msg) {
     return out;
   }
   if (msg.type === 'examples') {
-    zhxSentPromise ??= self.LENS.fetchData("ms", "sentences.json")
+    zhxSentPromise ??= self.LENS.fetchData("ms", "sentences.json.gz")
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;

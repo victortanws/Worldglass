@@ -34,6 +34,23 @@ const WG_IDB = {
       req.onerror = () => reject(req.error);
     });
   },
+  // Pack keys gained a .gz suffix when the payloads were compressed, so every pack an
+  // existing install had already downloaded is now unreachable by key. Left alone they
+  // would sit there forever — up to ~200 MB, and unlimitedStorage means nothing evicts
+  // them. Drop the old spellings once, on the first pack access after the upgrade.
+  sweepLegacy() {
+    this._swept ??= (async () => {
+      const db = await this.open();
+      const store = db.transaction('files', 'readwrite').objectStore('files');
+      const keys = await new Promise((resolve, reject) => {
+        const req = store.getAllKeys();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      for (const k of keys) if (!String(k).endsWith('.gz')) store.delete(k);
+    })().catch(() => {});
+    return this._swept;
+  },
 };
 
 self.LENS = {
@@ -48,6 +65,15 @@ self.LENS = {
 
   packState(code) { return this._packState[code] ?? null; },
 
+  // Packs are stored and served gzipped — see scripts/dictio.mjs for the size rationale.
+  // Both the bundled file and the download arrive compressed, so each is decoded here; the
+  // IndexedDB tier holds the already-parsed object and needs no decoding.
+  async _unpack(res, file) {
+    if (!file.endsWith('.gz')) return res.json();
+    const text = await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text();
+    return JSON.parse(text);
+  },
+
   // Returns a Response-shaped object ({ ok, json }) so wrapped cores keep their existing
   // `(await fetch(...)).json()` call sites untouched.
   async fetchData(code, file) {
@@ -56,11 +82,12 @@ self.LENS = {
       const res = await fetch(chrome.runtime.getURL(`dict/${key}`));
       if (res.ok) {
         this._packState[code] = 'bundled';
-        const data = await res.json();
+        const data = await this._unpack(res, file);
         return { ok: true, json: async () => data };
       }
     } catch { /* not bundled — slim build */ }
     if (typeof indexedDB !== 'undefined') {
+      WG_IDB.sweepLegacy(); // fire-and-forget: never let cleanup delay a lookup
       const cached = await WG_IDB.get(key).catch(() => undefined);
       if (cached !== undefined) {
         this._packState[code] = 'cached';
@@ -73,7 +100,7 @@ self.LENS = {
       this._packState[code] = 'absent';
       throw new Error(`language pack download failed: ${key} (${res.status})`);
     }
-    const data = await res.json();
+    const data = await this._unpack(res, file);
     if (typeof indexedDB !== 'undefined') WG_IDB.put(key, data).catch(() => {});
     this._packState[code] = 'cached';
     return { ok: true, json: async () => data };

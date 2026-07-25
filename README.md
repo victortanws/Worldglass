@@ -55,10 +55,31 @@ cd ~/Worldglass/dist/slim && zip -qr ../worldglass-vX.Y.Z-store.zip . -x "*.DS_S
 The **slim build** omits the four largest dictionaries (es / ja / fr / de — 83% of the
 payload); they download once on first use from this repo's raw URLs
 (`LENS.PACK_BASE` in `lens-core.js`) and cache in IndexedDB, after which lookups are as
-private and offline as bundled ones. That drops the store upload from ~270 MB to ~28 MB.
-Because packs are served from `main`, **push dictionary changes here before shipping a
-slim build that references them.** Store zips live in `dist/` (gitignored) — upload at
-the [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole).
+private and offline as bundled ones. Because packs are served from `main`, **push
+dictionary changes here before shipping a slim build that references them.** Store zips
+live in `dist/` (gitignored) — upload at the
+[Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole).
+
+### Why the dictionaries are `.json.gz`
+
+Dictionary payloads are stored and served gzipped. Raw, Spanish alone is 74 MB — past
+GitHub's 50 MB warning and closing on the 100 MB hard limit, above which a push is
+rejected outright. Gzipped it is 7.7 MB, and the set drops from 246 MB to 50 MB.
+
+This is a repository-size fix and nothing more. It does **not** speed up pack downloads:
+`raw.githubusercontent.com` already applies `Content-Encoding: gzip` to JSON, so a reader
+was fetching Malay as 1.11 MB over the wire before this change and 1.1 MB after. The store
+zip is likewise unchanged (~29 MB), since zip was already compressing the same bytes.
+
+Nothing extra is needed to consume them: a plain `git clone` (or **Download ZIP**) gives
+you real, directly loadable files, and `LENS.fetchData` decompresses with
+`DecompressionStream('gzip')` on both the bundled and the downloaded path — the IndexedDB
+cache holds the parsed object, so it needs no decoding.
+
+Git LFS was considered for this and rejected. `raw.githubusercontent.com` serves an LFS
+*pointer stub* rather than the file, which would break the pack-download path outright;
+GitHub's ZIP archives contain pointers too, breaking **Load unpacked**; and LFS's 1 GB/month
+free bandwidth would be exhausted by roughly a dozen Spanish pack downloads.
 
 ## Attribution
 
