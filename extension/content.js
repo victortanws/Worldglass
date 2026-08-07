@@ -99,6 +99,11 @@
     .selline.alpha .tok-col { margin-right: 9px; }
     .readrow { margin: 2px 0 4px; padding: 7px 9px; background: #f6f4ee; border-radius: 8px; font-size: 13.5px; line-height: 1.5; color: #3f3d36; }
     .readrow .lab { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-bottom: 2px; }
+    /* The fluent sentence leads the popup, so it reads as the answer rather than an afterthought. */
+    .transrow { margin: 2px 0 8px; padding: 8px 10px; background: #eaf0e6; border-radius: 8px; font-size: 14px; line-height: 1.55; color: #26251f; }
+    .transrow .lab { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #71824f; margin-bottom: 2px; }
+    .transrow .tr-out { margin-top: 0; font-size: 14px; }
+    .transrow .act { margin: 1px 0 2px; }
     .gram { margin: 0 0 7px; font-size: 12.5px; color: #3a6ea5; }
     .gram .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-right: 6px; }
     .gram .gram-l { font-weight: 600; border-radius: 4px; padding: 0 2px; }
@@ -197,6 +202,8 @@
       button.fam-toggle, .fam-w .fp { color: #8ab4e8; }
       .tr-out { color: #ece9e2; }
       .tr-out a.tr-ext { color: #8ab4e8; }
+      .transrow { background: #2e332a; color: #e6e3d8; }
+      .transrow .lab { color: #9fae83; }
       button.nav, button.icon { color: #b5b2a6; }
       button.nav:hover, button.icon:hover { background: #3a3931; }
       button.icon.on { color: #efb75a; }
@@ -553,7 +560,10 @@
       chip.dataset.w = fw.w;
       const w = document.createElement('span'); w.className = 'fw'; w.textContent = fw.w;
       const p = document.createElement('span'); p.className = 'fp'; p.textContent = fw.p;
-      const g = document.createElement('span'); g.className = 'fg'; g.textContent = cleanDef(fw.g).slice(0, 22);
+      // Word-boundary fit: a mid-word slice would print a fabricated non-word on the chip.
+      const fg = cleanDef(fw.g);
+      const g = document.createElement('span'); g.className = 'fg';
+      g.textContent = fg.length <= 22 ? fg : fg.slice(0, Math.max(fg.lastIndexOf(' ', 21), 12)).replace(/[\s,;:]+$/, '') + '\u2026';
       chip.append(w, ' ', p, ' ', g);
       wrap.appendChild(chip);
     }
@@ -815,6 +825,20 @@
     a.textContent = 'Open in Google Translate ↗';
     return a;
   }
+  // True only when the on-device model for this language pair is already installed, so a
+  // translation can be produced instantly and silently. Anything that would need a model
+  // download stays behind an explicit click — auto-starting a multi-megabyte download on
+  // a text selection would be a surprise, not a service.
+  async function translatorReady(src) {
+    try {
+      if (!('Translator' in self)) return false;
+      const ui = (navigator.language || 'en').split('-')[0];
+      const probe = (t) => withTimeout(Translator.availability({ sourceLanguage: src, targetLanguage: t }), 3000);
+      if (ui !== src && (await probe(ui)) === 'available') return true;
+      return (await probe('en')) === 'available';
+    } catch { return false; }
+  }
+
   async function translateInto(text, out) {
     out.textContent = 'Translating…';
     const fail = (msg) => {
@@ -1323,6 +1347,35 @@
     // mixed selection reads correctly alongside LTR runs.
     line.setAttribute('dir', !mixed && meta().dir === 'rtl' ? 'rtl' : 'auto');
     renderTokens(tokens, line, true);
+
+    // Comprehension before decomposition. A reader who highlights a sentence wants to know
+    // what it SAYS; the word breakdown then explains why it says that. So the fluent
+    // translation leads the popup — produced automatically when the on-device model is
+    // already installed, and behind one explicit click (which downloads the model once)
+    // when it is not. The breakdown never moves: understanding the sentence and being able
+    // to trace every word of it are both the point.
+    const out = document.createElement('div');
+    out.className = 'tr-out';
+    const trBtn = document.createElement('button');
+    trBtn.className = 'act';
+    trBtn.textContent = 'Translate this sentence';
+    trBtn.title = 'Fluent translation from your browser’s built-in translator (downloads its model once)';
+    trBtn.addEventListener('click', () => { trBtn.remove(); translateInto(text, out); });
+    const sentenceish = hanWords.length >= 2 && !mixed;
+    if (sentenceish) {
+      const transRow = document.createElement('div');
+      transRow.className = 'transrow';
+      const tlab = document.createElement('span');
+      tlab.className = 'lab';
+      tlab.textContent = 'sentence';
+      transRow.append(tlab, trBtn, out);
+      body.appendChild(transRow);
+      translatorReady(meta().tr).then((ready) => {
+        // The popup may have been closed or re-rendered while the probe ran.
+        if (ready && trBtn.isConnected) { trBtn.remove(); translateInto(text, out); }
+      });
+    }
+
     body.appendChild(line);
     const hint = document.createElement('div');
     hint.className = 'hint';
@@ -1331,10 +1384,10 @@
     body.appendChild(hint);
 
     // A wall of word-glosses still leaves the reader to assemble the sentence in their
-    // head. Chain the glosses into a running reading so the meaning arrives as a sentence
-    // — and because it sits directly under the interlinear, every word in it is traceable
-    // to the word above. This is a literal reading, honestly labelled: it is what the
-    // words say, not what a translator would write, and it is always available offline.
+    // head. Chain the glosses into a running literal reading — and because it sits
+    // directly under the interlinear, every word in it is traceable to the word above.
+    // Honestly labelled: it is what the words say, not what a translator would write,
+    // and unlike the fluent line it is always available, offline, in every browser.
     const glossed = tokens.filter((t) => t.han && t.g);
     if (glossed.length >= 2) {
       const reading = tokens.filter((t) => t.han)
@@ -1344,23 +1397,16 @@
       rd.className = 'readrow';
       const lab = document.createElement('span');
       lab.className = 'lab';
-      lab.textContent = 'word by word';
+      lab.textContent = 'literal, word by word';
       rd.append(lab, reading);
       body.appendChild(rd);
     }
 
     const trRow = document.createElement('div');
     trRow.className = 'tr-row';
-    const trBtn = document.createElement('button');
-    trBtn.className = 'act';
-    trBtn.textContent = 'Translate this sentence';
-    trBtn.title = 'Fluent translation from your browser’s built-in translator';
-    const out = document.createElement('div');
-    out.className = 'tr-out';
-    trBtn.addEventListener('click', () => translateInto(text, out));
-    trRow.appendChild(trBtn);
+    if (!sentenceish) trRow.appendChild(trBtn);
     trRow.appendChild(speakButton(text, 'Pronounce selection'));
-    trRow.appendChild(out);
+    if (!sentenceish) trRow.appendChild(out);
     body.appendChild(trRow);
 
     pop.appendChild(body);

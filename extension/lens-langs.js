@@ -243,6 +243,12 @@ const ZHX_FUNC_GLOSS = {
   要: 'want/will', 能: 'can', 就: 'then/just', 还: 'still/also', 从: 'from', 到: 'to/until',
   对: 'to/towards', 给: 'to/for', 被: '(passive)', 把: '(object marker)', 让: 'let/make',
   因为: 'because', 所以: 'so', 但是: 'but', 如果: 'if', 这: 'this', 那: 'that',
+  // The single most common characters read by their FUNCTION in running text, not their
+  // dictionary-first sense: 了 opened on the verb "to finish", 后 on "empress", 里 on
+  // "lining", 说 on the shuì reading "to persuade" — each true somewhere, wrong here.
+  了: '(completed)', 的: 'of/(possessive)', 后: 'after/behind', 里: 'in/inside',
+  说: 'to speak/say', 着: '(-ing)', 过: '(experience)', 地: '(-ly)', 得: '(degree)',
+  才: 'only then', 又: 'again', 再: 'again', 最: 'most', 语: 'language', 与: 'and/with',
 };
 
 // Short per-word gloss for interlinear display. Scans the picked entry first, then the
@@ -254,13 +260,18 @@ function zhxTokenGloss(entry, entries) {
   for (const e of [entry, ...(entries ?? []).filter((x) => x !== entry)]) {
     for (const d of e.d) {
       if (/^CL:/.test(d) || /^(?:variant of|old variant of|see )/.test(d)) continue;
+      // "classifier for sports and tasks" describes usage, not meaning. Prefer a real
+      // def from any row; if the word IS just a measure word, say that in two words.
+      if (/^(?:classifier for|measure word)/i.test(d)) continue;
       // Strip ALL leading parenthesized register tags — 他 opens with two of them.
       let s = d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
         .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
       if (!s) continue;
-      return s.length > 26 ? s.slice(0, 25) + '…' : s;
+      return zhxFit(s, 26);
     }
   }
+  // Every def was classifier prose — the word really is a measure word; name the role.
+  if ((entry.d ?? []).some((d) => /^(?:classifier for|measure word)/i.test(d))) return '(measure word)';
   return null;
 }
 
@@ -298,6 +309,26 @@ function zhxSegmentRun(run, mode) {
     }
   }
   return tokens;
+}
+
+// Never cut a word in half: a mid-word slice shows the reader a fabricated non-word
+// ("any of several ob…") where a meaning belongs. Overflow falls back to the previous
+// word boundary and drops a dangling connective; a bonus second sense that doesn't fit
+// is dropped whole rather than maimed.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
 }
 
 function zhxTokenize(text, mode) {
@@ -507,6 +538,16 @@ const ZHX_DEINFLECT = [
   ['ていた', ['て'], 'progressive past'], ['でいた', ['で'], 'progressive past'],
   ['ている', ['て'], 'progressive'], ['でいる', ['で'], 'progressive'],
   ['てる', ['て'], 'progressive'], ['でる', ['で'], 'progressive'],
+  // てしまう "ended up / to (my) regret" and くなる "become" were missing entirely, so
+  // 動かなくなってしまいました shattered into ICU fragments (しま "island", いま "now",
+  // した "tongue") instead of tracing back to 動く. Each family chains through the rules
+  // above: てしまいました → て-form → くなって → い-adj → かない → 動く.
+  ['てしまいました', ['て'], 'ended up·polite past'], ['でしまいました', ['で'], 'ended up·polite past'],
+  ['てしまった', ['て'], 'ended up·past'], ['でしまった', ['で'], 'ended up·past'],
+  ['てしまう', ['て'], 'ended up'], ['でしまう', ['で'], 'ended up'],
+  ['ちゃった', ['て'], 'ended up·casual past'], ['じゃった', ['で'], 'ended up·casual past'],
+  ['くなりました', ['い'], 'became·polite'], ['くなった', ['い'], 'became'],
+  ['くなって', ['い'], 'becoming'], ['くなる', ['い'], 'become'],
   ['きます', ['く', 'くる'], 'polite'], ['ぎます', ['ぐ'], 'polite'], ['します', ['す', 'する'], 'polite'],
   ['ちます', ['つ'], 'polite'], ['にます', ['ぬ'], 'polite'], ['びます', ['ぶ'], 'polite'],
   ['みます', ['む'], 'polite'], ['ります', ['る'], 'polite'], ['います', ['う'], 'polite'],
@@ -782,7 +823,7 @@ function zhxSegmentRun(run) {
     // homographs (は → 羽 "feather"); they get fixed grammatical glosses.
     const particle = ZHX_PARTICLE_GLOSS[merged];
     let gl = particle ?? (entry.s[0] ?? '').replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
-    if (gl.length > 22) gl = gl.slice(0, 21) + '…';
+    gl = zhxFit(gl, 22);
     // 読みます and 読んだ both mean "to read", but they do not say the same thing. The
     // deinflection chain is already known here — carry it into the line so tense, polarity
     // and politeness are visible while reading, instead of hidden behind a click.
@@ -830,6 +871,26 @@ const ZHX_PARTICLE_GLOSS = {
   // Homographs whose JMdict-common ordering misleads at token level.
   本: 'book', 中: 'inside', 方: 'way/person',
 };
+
+// Never cut a word in half: a mid-word slice shows the reader a fabricated non-word
+// ("any of several ob…") where a meaning belongs. Overflow falls back to the previous
+// word boundary and drops a dangling connective; a bonus second sense that doesn't fit
+// is dropped whole rather than maimed.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
 
 function zhxTokenize(text) {
   const tokens = [];
@@ -1134,6 +1195,9 @@ function zhxCandidates(word) {
         const st = w.slice(0, -tail.length);
         out.add(st + '다');
         enqueue(st);
+        // The -다 form must be QUEUED too, not just emitted: 싶었는데 strips to 싶었다,
+        // and only another pass (었다 → 다) can carry that on to 싶다.
+        enqueue(st + '다');
       }
     }
     for (const c of zhxIrregularStems(w)) out.add(c);
@@ -1206,7 +1270,10 @@ function zhxEndingLabel(word) {
   // (가+았+다 → 갔다, 배우+었+어요 → 배웠어요), so string suffixes alone would mislabel.
   for (const [tail, label] of [['습니다', 'formal polite past'], ['어요', 'polite past'], ['는데', 'past background (-는데)'], ['지만', 'past contrast ("but")'], ['고', 'past connective'], ['다', 'past']]) {
     if (word.length > tail.length && word.endsWith(tail)) {
-      const d = zhxDecompose(word[word.length - tail.length - 1]);
+      const syl = word[word.length - tail.length - 1];
+      // 있/없 have ㅆ as part of the stem itself — 있어요 is present tense, not past.
+      if (syl === '있' || syl === '없') continue;
+      const d = zhxDecompose(syl);
       if (d && d.final === 'ㅆ') return label;
     }
   }
@@ -1241,6 +1308,17 @@ function zhxLookupStem(word) {
       }
     }
     return viaParticle ?? { matched: word, entries: exact, gram: null };
+  }
+  // A particle peeled off a solid two-syllable stem is the strongest evidence there is:
+  // 공원에서 IS 공원 "park" + 에서, whatever else the deinflection machinery can reach
+  // (it also finds 곱다 "to be beautiful" via a ㄴ-drop plus ㅂ-irregular reversal, and
+  // the -다 preference below would take the verb). Nouns in running text out-number
+  // exotic conjugation paths by orders of magnitude, so the noun reading goes first.
+  for (const p of ZHX_PARTICLES) {
+    if (word.length - p.length >= 2 && word.endsWith(p)) {
+      const stem = zhxIndex.get(word.slice(0, -p.length));
+      if (solid(stem)) return { matched: word.slice(0, -p.length), entries: stem, gram: null };
+    }
   }
   // Korean dictionary form is the -다 infinitive, so a -다 candidate is far likelier to be
   // the lemma the reader wants than a bare stem syllable that merely happens to be listed
@@ -1302,7 +1380,11 @@ function zhxFamily(syl, exclude, limit, freq) {
 // the humble pronoun "I", and the pointer's POS says which one is meant).
 const ZHX_REF_RE = /\b(?:form|adnominal|conjugation|inflection|contraction|honorific|humble|plural|abbreviation|nominalization|participle|declension|variant|alternative|sequential|connective)\s+of\s+([가-힣]+)/;
 function zhxShortSense(g) {
-  return (g ?? '').replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[;,(]/)[0].replace(/[\s.:;,]+$/, '').trim();
+  // Cut at the first hangul character rather than rejecting the sense: the looser source
+  // writes "after school program 방과 후 수업 …", and the English before the citation is
+  // a real meaning — 방과 went silent for want of this cut.
+  return (g ?? '').replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[가-힣]/)[0]
+    .split(/[;,(]/)[0].replace(/[\s.:;,]+$/, '').trim();
 }
 
 // Join up to two senses. 저 is genuinely both the determiner "that" and the humble
@@ -1310,7 +1392,7 @@ function zhxShortSense(g) {
 // Offering the real alternatives is the interpretable choice; guessing is the reductive one.
 // One kodict row can hold several senses: "(noun) friend; fellow, chap, guy".
 function zhxSenseList(g) {
-  return (g ?? '').replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(';')
+  return (g ?? '').replace(/^(?:\([^)]{0,20}\)\s*)+/, '').split(/[가-힣]/)[0].split(';')
     .map((x) => x.split(/[,(]/)[0].replace(/[\s.:;,]+$/, '').trim())
     .filter(Boolean);
 }
@@ -1326,7 +1408,16 @@ function zhxSensesOf(entries, pos) {
   // from a lower-quality row. Senses come from the best tier present, and that tier is
   // exhausted before anything below it is considered.
   const structured = pool.filter((e) => /^\(/.test(e.g));
-  const tier = structured.length ? structured : pool;
+  let tier = structured.length ? structured : pool;
+  // A row whose leading sense is vulgar or a syllable-name must not LEAD the gloss when a
+  // plain meaning exists beside it: 년 read "bitch · year" because the slur row came
+  // first. The row is demoted, not deleted — if the vulgar sense is the only meaning, it
+  // still shows, and the full entry always lists everything.
+  const zhxCrude = (e) => /(?:^|\s)(?:bitch|bastard|whore|slut|fuck|shit|dick|cock|cunt|penis|vagina|anus|arse)\b/i.test(zhxShortSense(e.g))
+    || /^\((?:syllable|character)/.test(e.g);
+  if (tier.some(zhxCrude) && tier.some((e) => !zhxCrude(e))) {
+    tier = [...tier.filter((e) => !zhxCrude(e)), ...tier.filter(zhxCrude)];
+  }
   // kodict mixes real senses with citation lines ("example: 우리가 학교…") and restatements
   // of the same meaning ("book" / "A book"). Only genuinely different senses earn the slot.
   const senses = [];
@@ -1337,6 +1428,8 @@ function zhxSensesOf(entries, pos) {
     for (const e of tier) {
       for (const s of zhxSenseList(e.g).slice(pass, pass ? undefined : 1)) {
         if (!s || /example/i.test(s) || /[가-힣]/.test(s) || /^["'“]/.test(s)) continue;
+        // A bare hanja is a spelling, not a meaning — 년 read "year · 年".
+        if (/^[㐀-䶿一-鿿\s;:·]+$/.test(s)) continue;
         if (/^(?:sense|senses|synonym|synonyms|see|idem|ditto|cf)$/i.test(s)) continue; // editorial residue
         // Prose ABOUT a word is not a translation of it. The looser source contributes
         // lines like "A phrase used to form…" and "Marks a continuing action", which read
@@ -1347,6 +1440,7 @@ function zhxSensesOf(entries, pos) {
         // 셋 "three · Seth". Only the tail is filtered, so no word loses its only meaning,
         // and short capitals survive because 저 "that · I" is exactly right.
         if (senses.length && /^[A-Z]/.test(s) && (s.length > 3 || /\s/.test(s))) continue;
+        if (senses.length && /(?:^|\s)(?:bitch|bastard|whore|slut|fuck|shit|dick|cock|cunt|penis|vagina|anus|arse)\b/i.test(s)) continue;
         const key = s.toLowerCase().replace(/^(?:a|an|the|to)\s+/, '');
         if (senses.some((x) => x.key === key || x.key.startsWith(key) || key.startsWith(x.key))) continue;
         senses.push({ s, key });
@@ -1380,7 +1474,7 @@ const ZHX_GRAM_SHORT = {
   'formal polite (하다)': 'formal', 'polite (하다)': 'polite',
   'honorific polite past': 'past·polite·hon', 'honorific polite': 'polite·hon',
   'polite past': 'past·polite', 'polite future/conjecture': 'will·polite', polite: 'polite',
-  past: 'past', 'future/conjecture': 'will', 'past contrast ("but")': 'past·but',
+  past: 'past', 'future/conjecture': 'will', 'past contrast ("but")': 'past·but', 'past background (-는데)': 'past·and',
   'contrast ("but")': 'but', 'connective ("and")': 'and', conditional: 'if',
   'causal (-니까)': 'because', 'simultaneous (-면서)': 'while', 'background (-는데)': 'background',
   'sequence/cause (-어서)': 'so', 'sequence/cause (-아서)': 'so',
@@ -1396,6 +1490,26 @@ function zhxShortGram(gram) {
   return s.length > 18 ? null : s; // an unmapped mouthful is worse than silence
 }
 
+// Never cut a word in half: a mid-word slice shows the reader a fabricated non-word
+// ("any of several ob…") where a meaning belongs. Overflow falls back to the previous
+// word boundary and drops a dangling connective; a bonus second sense that doesn't fit
+// is dropped whole rather than maimed.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+
 function zhxTokenGloss(run) {
   const hit = zhxLookupStem(run);
   if (!hit) return null;
@@ -1403,7 +1517,7 @@ function zhxTokenGloss(run) {
   // is a pointer, follow it rather than showing the reader a cross-reference.
   let s = zhxSensesOf(hit.entries) ?? zhxResolveRef(hit.entries[0]?.g ?? '');
   if (!s) return null;
-  if (s.length > 22) s = s.slice(0, 21) + '…';
+  s = zhxFit(s, 22);
   // 갔습니다 and 가면 both mean "to go"; what separates them is the ending. Carry it into
   // the line so tense, politeness and clause role are readable without a click.
   const g = zhxShortGram(hit.gram);
@@ -1419,6 +1533,20 @@ function zhxTokenize(text) {
     last = m.index + m[0].length;
   }
   if (last < text.length) tokens.push({ w: text.slice(last), p: null, han: false });
+  // ~고 싶다 is how Korean says "want to VERB", and it is everywhere. Without the pattern,
+  // 보고 in 보고 싶었는데 resolves to the noun "report" — a real headword, but here it is
+  // unambiguously 보다 + -고, because 싶다 REQUIRES a -고 verb before it. This is the one
+  // place the grammar itself settles the ambiguity, so use it: re-gloss the -고 token from
+  // its verb reading. No guess is involved — the pattern is syntax, not probability.
+  const hangul = tokens.filter((t) => t.han);
+  for (let i = 0; i + 1 < hangul.length; i++) {
+    const cur = hangul[i], nxt = hangul[i + 1];
+    if (!cur.w.endsWith('고') || cur.w.length < 2 || !/^싶/.test(nxt.w)) continue;
+    const verb = zhxIndex.get(cur.w.slice(0, -1) + '다');
+    if (!verb) continue;
+    const sense = zhxSensesOf(verb);
+    if (sense) cur.g = `${sense.split(' · ')[0]} (want to)`;
+  }
   return tokens;
 }
 
@@ -1568,7 +1696,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1615,7 +1743,27 @@ const ZHX_FUNC_GLOSS = { 'عن': 'about', 'في': 'in', 'من': 'from', 'إلى'
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -1658,13 +1806,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
@@ -1674,16 +1834,21 @@ function zhxTokenGloss(run) {
   if (!hit || hit.risky) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -1692,7 +1857,7 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   
@@ -1807,7 +1972,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -1854,7 +2019,27 @@ const ZHX_FUNC_GLOSS = { 'د': 'at/in', 'دان': 'and', 'يڠ': 'which/that', '
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -1897,13 +2082,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
@@ -1913,16 +2110,21 @@ function zhxTokenGloss(run) {
   if (!hit || hit.risky) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -1931,7 +2133,7 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   
@@ -2024,7 +2226,7 @@ async function zhxHandle(msg) {
             const r = await msSeg.handle({ type: 'lookup', word: cand, lang: 'ms' });
             if (r && r.found && !r.tentative && !/^\(character\)/.test(r.entries[0]?.defs?.[0] ?? '')) {
               const s = (r.entries[0].defs[0] ?? '').replace(/^\([^)]{0,26}\)\s*/, '').split(/[;,(]/)[0].trim();
-              if (s) { t.g = '\u2248' + (s.length > 20 ? s.slice(0, 19) + '\u2026' : s); if (!t.p) t.p = cand; }
+              if (s) { t.g = '\u2248' + zhxFit(s, 20); if (!t.p) t.p = cand; }
               break;
             }
           }
@@ -2130,7 +2332,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2177,7 +2379,27 @@ const ZHX_FUNC_GLOSS = { 'עם': 'with', 'של': 'of', 'את': '(object)', 'אל
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -2220,13 +2442,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[zhxBare(run)];
@@ -2236,16 +2470,21 @@ function zhxTokenGloss(run) {
   if (!hit) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -2254,7 +2493,7 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   
@@ -2372,7 +2611,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2414,12 +2653,32 @@ function zhxRedup(word) {
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
 const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
-const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', des: 'some', de: 'of', du: 'of the', et: 'and', en: 'in', est: 'is', sont: 'are', que: 'that', qui: 'who/that', dans: 'in', avec: 'with', pour: 'for', au: 'to the', aux: 'to the', sur: 'on', pas: 'not', ne: 'not', je: 'I', il: 'he/it', elle: 'she', nous: 'we', vous: 'you', ils: 'they', ce: 'this', mais: 'but', ou: 'or', 'où': 'where' };
+const ZHX_FUNC_GLOSS = { le: 'the', la: 'the', les: 'the', un: 'a', une: 'a', des: 'some', de: 'of', du: 'of the', et: 'and', en: 'in', est: 'is', sont: 'are', que: 'that', qui: 'who/that', dans: 'in', avec: 'with', pour: 'for', au: 'to the', aux: 'to the', sur: 'on', pas: 'not', ne: 'not', je: 'I', il: 'he/it', elle: 'she', nous: 'we', vous: 'you', ils: 'they', ce: 'this', mais: 'but', ou: 'or', 'où': 'where', a: 'has', ai: 'have', as: 'have', ont: 'have', avait: 'had', avaient: 'had', pendant: 'during', leur: 'their · (to) them', leurs: 'their', y: 'there', on: 'we/one', se: '(reflexive)', plus: 'more', 'très': 'very', bien: 'well', tout: 'all', toute: 'all', tous: 'all', toutes: 'all', cette: 'this', cet: 'this', ces: 'these', son: 'his/her', sa: 'his/her', ses: 'his/her', notre: 'our', votre: 'your', comme: 'like/as', aussi: 'also', si: 'if/so', 'déjà': 'already', encore: 'still/again', jamais: 'never', toujours: 'always' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -2462,13 +2721,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
@@ -2478,16 +2749,21 @@ function zhxTokenGloss(run) {
   if (!hit || hit.risky) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -2496,18 +2772,30 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   // Every sense described the FORM and none named a lemma to follow: mange is listed as
   // "first/third-person singular present indicative/subjunctive" with no "of manger" to
-  // chase. Rebuild the infinitive and read ITS meaning. Only a (verb) entry is accepted, so
-  // a chance collision with an unrelated noun cannot put a wrong gloss on the page.
-  for (const t of ["r","er"]) {
-    const cand = zhxIndex.get(run.toLowerCase() + t);
-    if (!cand) continue;
-    const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
-    if (via) return via;
+  // chase, partions and wohnt the same. Rebuild the infinitive — peel a person/tense
+  // ending, reattach an infinitive ending — and read ITS meaning. Two guards keep a
+  // collision from inventing a gloss: recovery only runs when the entry ITSELF said the
+  // word is a verb form (sawVerbForm), and only a (verb) lemma entry is accepted.
+  if (sawVerbForm) {
+    const base = run.toLowerCase();
+    // Each ending licenses only certain infinitives: Spanish -en is a present form of
+    // -er/-ir verbs and can never come from an -ar verb. A flat tail list ignored that
+    // and resolved venden (from vender, "to sell") to vendar "to bandage".
+    for (const [st, tails] of [["issions",["ir"]],["issiez",["ir"]],["issent",["ir"]],["aient",["er","re","ir"]],["ions",["er","ir","re"]],["iez",["er","ir","re"]],["ais",["er","re","ir"]],["ait",["er","re","ir"]],["ent",["er","re","ir"]],["ons",["er","re","ir"]],["ez",["er","ir","re"]],["es",["er"]],["e",["er","re"]],["s",["er","ir","re"]],["",["r"]]]) {
+      if (st && !(base.endsWith(st) && base.length - st.length >= 3)) continue;
+      const stem = st ? base.slice(0, -st.length) : base;
+      for (const t of tails) {
+        const cand = zhxIndex.get(stem + t);
+        if (!cand) continue;
+        const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
+        if (via) return via;
+      }
+    }
   }
   return null;
 }
@@ -2657,7 +2945,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2699,12 +2987,32 @@ function zhxRedup(word) {
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
 const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
-const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near', habe: 'have', hast: 'have', hat: 'has', haben: 'have', habt: 'have', hatte: 'had', hatten: 'had', bin: 'am', bist: 'are', war: 'was', waren: 'were', wird: 'will', werden: 'will/become', wurde: 'was/became', kann: 'can', muss: 'must', soll: 'should', will: 'wants', mehr: 'more', schon: 'already', noch: 'still' };
+const ZHX_FUNC_GLOSS = { der: 'the', die: 'the', das: 'the', den: 'the', dem: 'the', des: 'of the', ein: 'a', eine: 'a', einen: 'a', einem: 'a', einer: 'a', und: 'and', ist: 'is', sind: 'are', in: 'in', im: 'in the', mit: 'with', 'für': 'for', von: 'of/from', zu: 'to', auf: 'on', an: 'at/on', nicht: 'not', ich: 'I', er: 'he', sie: 'she/they', wir: 'we', es: 'it', aber: 'but', oder: 'or', wenn: 'if/when', auch: 'also', bei: 'at/near', jeden: 'every', jede: 'every', jeder: 'every', jedem: 'every', jedes: 'every', mir: 'me', mich: 'me', dir: 'you', dich: 'you', ihm: 'him', ihn: 'him', ihr: 'her/you (pl)', uns: 'us', euch: 'you (pl)', um: 'at/around', man: 'one/you', kein: 'no', keine: 'no', keinen: 'no', dass: 'that', weil: 'because', als: 'as/when/than', nur: 'only', sehr: 'very', jetzt: 'now', hier: 'here', dort: 'there', dann: 'then', habe: 'have', hast: 'have', hat: 'has', haben: 'have', habt: 'have', hatte: 'had', hatten: 'had', bin: 'am', bist: 'are', war: 'was', waren: 'were', wird: 'will', werden: 'will/become', wurde: 'was/became', kann: 'can', muss: 'must', soll: 'should', will: 'wants', mehr: 'more', schon: 'already', noch: 'still' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -2747,13 +3055,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
@@ -2763,16 +3083,21 @@ function zhxTokenGloss(run) {
   if (!hit || hit.risky) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -2781,18 +3106,30 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   // Every sense described the FORM and none named a lemma to follow: mange is listed as
   // "first/third-person singular present indicative/subjunctive" with no "of manger" to
-  // chase. Rebuild the infinitive and read ITS meaning. Only a (verb) entry is accepted, so
-  // a chance collision with an unrelated noun cannot put a wrong gloss on the page.
-  for (const t of ["en","n"]) {
-    const cand = zhxIndex.get(run.toLowerCase() + t);
-    if (!cand) continue;
-    const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
-    if (via) return via;
+  // chase, partions and wohnt the same. Rebuild the infinitive — peel a person/tense
+  // ending, reattach an infinitive ending — and read ITS meaning. Two guards keep a
+  // collision from inventing a gloss: recovery only runs when the entry ITSELF said the
+  // word is a verb form (sawVerbForm), and only a (verb) lemma entry is accepted.
+  if (sawVerbForm) {
+    const base = run.toLowerCase();
+    // Each ending licenses only certain infinitives: Spanish -en is a present form of
+    // -er/-ir verbs and can never come from an -ar verb. A flat tail list ignored that
+    // and resolved venden (from vender, "to sell") to vendar "to bandage".
+    for (const [st, tails] of [["test",["en"]],["tet",["en"]],["ten",["en"]],["te",["en"]],["st",["en"]],["et",["en"]],["t",["en"]],["e",["en","n","rn","ln"]],["n",["en"]],["",["en","n"]]]) {
+      if (st && !(base.endsWith(st) && base.length - st.length >= 3)) continue;
+      const stem = st ? base.slice(0, -st.length) : base;
+      for (const t of tails) {
+        const cand = zhxIndex.get(stem + t);
+        if (!cand) continue;
+        const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
+        if (via) return via;
+      }
+    }
   }
   return null;
 }
@@ -2942,7 +3279,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -2984,12 +3321,32 @@ function zhxRedup(word) {
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
 const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
-const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', una: 'a', de: 'of', del: 'of the', en: 'in', y: 'and', es: 'is', son: 'are', que: 'that', con: 'with', por: 'for/by', para: 'for', al: 'to the', no: 'not', se: '(reflexive)', su: 'his/her/its', sus: 'their', yo: 'I', 'él': 'he', ella: 'she', pero: 'but', o: 'or', como: 'like/as', 'más': 'more', muy: 'very', toda: 'all', todo: 'all' };
+const ZHX_FUNC_GLOSS = { el: 'the', la: 'the', los: 'the', las: 'the', un: 'a', una: 'a', de: 'of', del: 'of the', en: 'in', y: 'and', es: 'is', son: 'are', que: 'that', con: 'with', por: 'for/by', para: 'for', al: 'to the', no: 'not', se: '(reflexive)', su: 'his/her/its', sus: 'their', yo: 'I', 'él': 'he', ella: 'she', pero: 'but', o: 'or', como: 'like/as', 'más': 'more', muy: 'very', toda: 'all', todo: 'all', si: 'if', 'sí': 'yes', me: 'me/myself', te: 'you/yourself', mis: 'my', tus: 'your', mi: 'my', tu: 'your', lo: 'it/him', le: '(to) him/her', nos: 'us', cuando: 'when', ya: 'already', 'aquí': 'here', ahora: 'now', 'también': 'also', siempre: 'always', nunca: 'never' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -3032,13 +3389,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
@@ -3048,16 +3417,21 @@ function zhxTokenGloss(run) {
   if (!hit || hit.risky) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -3066,18 +3440,30 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   // Every sense described the FORM and none named a lemma to follow: mange is listed as
   // "first/third-person singular present indicative/subjunctive" with no "of manger" to
-  // chase. Rebuild the infinitive and read ITS meaning. Only a (verb) entry is accepted, so
-  // a chance collision with an unrelated noun cannot put a wrong gloss on the page.
-  for (const t of ["ar","er","ir"]) {
-    const cand = zhxIndex.get(run.toLowerCase() + t);
-    if (!cand) continue;
-    const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
-    if (via) return via;
+  // chase, partions and wohnt the same. Rebuild the infinitive — peel a person/tense
+  // ending, reattach an infinitive ending — and read ITS meaning. Two guards keep a
+  // collision from inventing a gloss: recovery only runs when the entry ITSELF said the
+  // word is a verb form (sawVerbForm), and only a (verb) lemma entry is accepted.
+  if (sawVerbForm) {
+    const base = run.toLowerCase();
+    // Each ending licenses only certain infinitives: Spanish -en is a present form of
+    // -er/-ir verbs and can never come from an -ar verb. A flat tail list ignored that
+    // and resolved venden (from vender, "to sell") to vendar "to bandage".
+    for (const [st, tails] of [["ábamos",["ar"]],["íamos",["er","ir"]],["amos",["ar"]],["emos",["er"]],["imos",["ir"]],["aban",["ar"]],["ían",["er","ir"]],["aba",["ar"]],["ía",["er","ir"]],["áis",["ar"]],["éis",["er"]],["an",["ar"]],["en",["er","ir"]],["as",["ar"]],["es",["er","ir"]],["a",["ar"]],["e",["er","ir"]],["ó",["ar"]],["o",["ar","er","ir"]]]) {
+      if (st && !(base.endsWith(st) && base.length - st.length >= 3)) continue;
+      const stem = st ? base.slice(0, -st.length) : base;
+      for (const t of tails) {
+        const cand = zhxIndex.get(stem + t);
+        if (!cand) continue;
+        const via = cand.filter((e) => /^\(verb/.test(e.g ?? '')).map((e) => zhxTidyGloss(e.g)).find(Boolean);
+        if (via) return via;
+      }
+    }
   }
   return null;
 }
@@ -3268,7 +3654,7 @@ function zhxEnsureDict() {
 
 // A gloss that is only a grammatical pointer ("(verb) inflection of estar") with no
 // real definition. These should rank below entries that actually define the word.
-const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
+const ZHX_POINTER_RE = /^(\([^)]*\)\s*)?(strong|weak|mixed|inflection|plural|singular|feminine|masculine|neuter|comparative|superlative|diminutive|augmentative|past participle|present participle|verbal noun|active participle|passive participle|gerund|infinitive|conjugation|imperative|subjunctive|indicative|preterite|(?:first|second|third)(?:\/(?:first|second|third))*-person|nominative|genitive|dative|accusative|vocative|construct|dual|alternative|excessive spelling|defective spelling|active|passive|causative|reflexive)\b[^;]*\bof\b/i;
 function zhxRankList(list) {
   return [...list].sort((a, b) => (ZHX_POINTER_RE.test(a.g) ? 1 : 0) - (ZHX_POINTER_RE.test(b.g) ? 1 : 0));
 }
@@ -3310,12 +3696,32 @@ function zhxRedup(word) {
 // A gloss built entirely out of grammatical vocabulary describes the FORM, not the word.
 const ZHX_GRAM_ONLY_RE = /^(?:(?:first|second|third)(?:\/(?:first|second|third))*-person|singular|plural|strong|weak|mixed|nominative|accusative|dative|genitive|vocative|masculine|feminine|neuter|present|past|future|preterite|perfect|imperfect|pluperfect|indicative|subjunctive|conditional|imperative|infinitive|participle|gerund|supine|comparative|superlative|positive|definite|indefinite|attributive|predicative|colloquial|informal|formal|dated|literary|poetic|archaic|obsolete|rare|regional|dialectal|nonstandard|slang|form|forms|degree|declension|conjugation|inflection|tense|mood|case|number|gender|and|or|of|the|a|an|all|both|only|used|esp|especially|[\s,;/&+.()-])+$/i;
 
-const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', untuk: 'for', dengan: 'with', yang: 'which/that', dan: 'and', atau: 'or', tidak: 'not', tak: 'not', akan: 'will', sudah: 'already', telah: 'has/have', adalah: 'is', ialah: 'is', itu: 'that', ini: 'this', saya: 'I', dia: 'he/she', kami: 'we', kita: 'we', mereka: 'they', juga: 'also', ada: 'there is', buku: 'book', bagi: 'for', oleh: 'by', dalam: 'in/inside', banyak: 'many', semua: 'all' };
+const ZHX_FUNC_GLOSS = { di: 'at/in', ke: 'to', dari: 'from', pada: 'at/on', untuk: 'for', dengan: 'with', yang: 'which/that', dan: 'and', atau: 'or', tidak: 'not', tak: 'not', akan: 'will', sudah: 'already', telah: 'has/have', adalah: 'is', ialah: 'is', itu: 'that', ini: 'this', saya: 'I', dia: 'he/she', kami: 'we', kita: 'we', mereka: 'they', juga: 'also', ada: 'there is', buku: 'book', bagi: 'for', oleh: 'by', dalam: 'in/inside', banyak: 'many', semua: 'all', semalam: 'yesterday · last night', sedang: 'in the middle of (-ing)' };
 // Tidy a raw dictionary sense into an interlinear gloss: drop meta-prefixes that describe
 // the entry rather than its meaning ("acronym of X" → "X"), take the first sense, strip
 // trailing punctuation, and lowercase a sentence-initial capital unless it heads a proper
 // noun ("United Malays…" keeps its capitals; "Possibility:" becomes "possibility").
-function zhxTidyGloss(raw) {
+// Never cut a word in half. The 26-character cap used to slice mid-word, showing the
+// reader fabricated non-words — "any of several ob\u2026", "one who studi\u2026" — in the slot
+// where a real word belongs. A gloss that doesn't fit now falls back to the previous word
+// boundary, drops a dangling connective ("to look at and\u2026" \u2192 "to look at\u2026"), and when
+// only the bonus second sense overflows, drops that sense whole instead of maiming it.
+function zhxFit(s, n) {
+  if (s.length <= n) return s;
+  const first = s.split(' \u00b7 ')[0];
+  let t = first;
+  let cut = t.length > n;
+  if (cut) {
+    const sp = t.lastIndexOf(' ', n - 1);
+    t = sp > 0 ? t.slice(0, sp) : t.slice(0, n - 1);
+    t = t.replace(/\s*\([^)]*$/, '');
+  }
+  const dangling = /[\s,;:]+(?:and|or|of|the|a|an|to|with|for|in|on|at|by|from|is|are|was|that|which|who)$/i;
+  while (dangling.test(t)) { t = t.replace(dangling, ''); cut = true; }
+  t = t.replace(/[\s,;:]+$/, '');
+  return cut ? t + '\u2026' : t;
+}
+function zhxTidyGloss(raw, word) {
   let s = String(raw ?? '')
     // Borrowed Malay entries are tagged "[Indonesian]" at the end of the gloss so the entry
     // panel can disclose where the sense came from. The one-line gloss has 26 characters to
@@ -3358,13 +3764,25 @@ function zhxTidyGloss(raw) {
   // always scraped debris — masuk read "to enter \u00b7 To set". Only the tail is filtered, so
   // no word loses its only meaning, and short capitals survive for cases like "I".
   const zhxDebris = (x) => /^[A-Z]/.test(x) && (x.length > 3 || /\s/.test(x));
-  if (senses[1] && s.length <= 12 && !zhxNear(s, senses[1]) && !zhxDebris(senses[1])) s += ' \u00b7 ' + senses[1];
+  // The second slot is a BONUS, so it clears a higher bar than the first: no pointer text
+  // ("plural of kanak"), no echo of the headword itself (Morgen \u00b7 morgen), and no vulgar
+  // sense dropped in beside an everyday one (chien read "dog \u00b7 cock", amigo
+  // "friend \u00b7 penis" \u2014 true senses, and still in the full entry, but as surprise garnish
+  // they read as vandalism). The first sense is never filtered: if the vulgar sense is the
+  // only meaning, it IS the meaning.
+  const zhxBonusBad = (x) => /\b(?:form|plural|singular|participle|spelling|inflection|conjugation)\s+of\b/i.test(x)
+    || /(?:^|\s)(?:penis|vagina|fuck|shit|dick|cock|cunt|whore|slut|anus|arse|tits?|boobs?)\b/i.test(x)
+    || (word != null && x.toLowerCase() === word);
+  if (s.length <= 12) {
+    const bonus = senses.slice(1).find((x) => !zhxNear(s, x) && !zhxDebris(x) && !zhxBonusBad(x));
+    if (bonus) s += ' \u00b7 ' + bonus;
+  }
   if (!s) return null;
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
-  return s.length > 26 ? s.slice(0, 25) + '\u2026' : s;
+  return zhxFit(s, 26);
 }
 function zhxTokenGloss(run) {
   const fg = ZHX_FUNC_GLOSS[run.toLowerCase()];
@@ -3373,22 +3791,27 @@ function zhxTokenGloss(run) {
   // its bare root, and marked \u2248 because the meaning is composed rather than quoted.
   if (!zhxMsHasMeaning(zhxIndex.get(run.toLowerCase()))) {
     const der = zhxMsDerive(run);
-    if (der) return '\u2248' + (der.gloss.length > 25 ? der.gloss.slice(0, 24) + '\u2026' : der.gloss);
+    if (der) return '\u2248' + zhxFit(der.gloss, 25);
   }
   const hit = zhxLookupWord(run);
   if (!hit || hit.risky) return null;
   // Unranked order on purpose: zhxRankList demotes pointer senses for the entry panel,
   // but a pointer carrying "— to speak" is exactly what a one-line gloss wants.
+  let sawVerbForm = false;
   for (const e of hit.list) {
     let s = e.g ?? '';
-    const tail = s.match(/\u2014\s*(.+)$/);
+    if (/^\(verb/.test(s)) sawVerbForm = true;
+    const tail = s.match(/\u2014\s*(.+)$/) ?? s.match(/\bof\s+[^:;]{1,40}:\s*(.+)$/);
     if (ZHX_POINTER_RE.test(s)) {
       // A pointer sense names the lemma; follow it. Skipping it instead let a stray
       // register tag win the slot — parlé glossed "colloquial" rather than "to speak".
       if (tail) s = tail[1];
       else {
-        const m = s.match(/\bof\s+([^\s,;()]+)/);
-        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1]));
+        // The colon is excluded from the capture and the bare form tried too: RTL entries
+        // write "form of שנה:" with vowel points the index keys don't carry.
+        const m = s.match(/\bof\s+([^\s,;:()]+)/);
+        const base = m && (zhxIndex.get(m[1].toLowerCase()) ?? zhxIndex.get(m[1])
+          ?? (typeof zhxBare === 'function' ? zhxIndex.get(zhxBare(m[1])) : null));
         const via = base && zhxRankList(base).map((b) => zhxTidyGloss(b.g))
           .find((t) => t && !ZHX_GRAM_ONLY_RE.test(t));
         if (!via) continue;
@@ -3397,7 +3820,7 @@ function zhxTokenGloss(run) {
     }
     // zhxTidyGloss returns null for a gloss that only describes the FORM ("strong/mixed
     // nominative singular"), which tells a reader nothing about meaning — so keep looking.
-    const tidy = zhxTidyGloss(s);
+    const tidy = zhxTidyGloss(s, run.toLowerCase());
     if (tidy) return tidy;
   }
   
