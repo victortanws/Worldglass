@@ -1445,8 +1445,12 @@ function zhxSensesOf(entries, pos) {
   // Pass 1 takes each entry's headline sense, so genuinely distinct entries win the second
   // slot first — 저 is both the determiner "that" and the humble pronoun "I", and showing
   // both is the whole point. Pass 2 falls back to further senses inside the same entry.
+  let chosenH = null;
   for (const pass of [0, 1]) {
     for (const e of tier) {
+      // Cross-homograph bonuses are suppressed: 榮華 "prosperity" is not a second sense
+      // of 映畫 "movie", it is a different word that happens to share a spelling.
+      if (senses.length && chosenH != null && (e.h || chosenH) && e.h !== chosenH) continue;
       for (const s of zhxSenseList(e.g).slice(pass, pass ? undefined : 1)) {
         if (!s || /example/i.test(s) || /[가-힣]/.test(s) || /^["'“]/.test(s)) continue;
         // A bare hanja is a spelling, not a meaning — 년 read "year · 年".
@@ -1464,6 +1468,7 @@ function zhxSensesOf(entries, pos) {
         if (senses.length && /(?:^|\s)(?:bitch|bastard|whore|slut|fuck|shit|dick|cock|cunt|penis|vagina|anus|arse)\b/i.test(s)) continue;
         const key = s.toLowerCase().replace(/^(?:a|an|the|to)\s+/, '');
         if (senses.some((x) => x.key === key || x.key.startsWith(key) || key.startsWith(x.key))) continue;
+        if (!senses.length) chosenH = e.h ?? '';
         senses.push({ s, key });
         break;
       }
@@ -1551,9 +1556,21 @@ function zhxSinoNumber(word) {
   return total + section + digit;
 }
 
+// Words whose kodict row order is badly wrong for a modern reader: 삼성 opens on
+// "(name) Buddha, Jesus, and Confucius" (三聖) with Samsung (三星) third. Same precedent
+// as the hand gloss maps in the Chinese and Latin cores — the override IS a real meaning.
+const ZHX_KO_COMMON = { 삼성: 'Samsung', 현대: 'Hyundai · modern times', 엘지: 'LG' };
+
 function zhxTokenGloss(run) {
   const num = zhxSinoNumber(run);
   if (num != null) return num.toLocaleString('en-US');
+  const common = ZHX_KO_COMMON[run] ?? (() => {
+    for (const p of ZHX_PARTICLES) {
+      if (run.length > p.length && run.endsWith(p) && ZHX_KO_COMMON[run.slice(0, -p.length)]) return ZHX_KO_COMMON[run.slice(0, -p.length)];
+    }
+    return null;
+  })();
+  if (common) return common;
   const hit = zhxLookupStem(run);
   if (!hit) return null;
   // An entry that states a meaning beats one that only points elsewhere; if every entry
