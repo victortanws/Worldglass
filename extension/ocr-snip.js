@@ -199,12 +199,21 @@
     const first = OCR.pickLang(rect);
     let res = await chrome.runtime.sendMessage({ type: 'ocrRecognize', image, lang: first.lang, psm: first.psm });
     if (res?.error) throw new Error(res.error);
-    if ((res.confidence ?? 100) < 50) {
+    // `effective` is engine confidence discounted for wrong-script output (ocr-prep.js).
+    const score = (r) => r?.effective ?? r?.confidence ?? 0;
+    if (score(res) < 60) {
       const retry = OCR.retryLang(rect, first.lang);
       if (retry) {
         const res2 = await chrome.runtime.sendMessage({ type: 'ocrRecognize', image, lang: retry.lang, psm: retry.psm });
-        if (!res2?.error && (res2.confidence ?? 0) > (res.confidence ?? 0)) res = res2;
+        if (!res2?.error && score(res2) > score(res)) res = res2;
       }
+    }
+    // Honesty gate. The old pipeline dispatched whatever came back, so a glossy anime
+    // title read as "ETEN 人TI 二ERNRECwena" and the popup presented it as a sentence.
+    // Below this floor the reading is likelier noise than text, and showing noise as if
+    // it were language is worse than admitting defeat.
+    if (score(res) < 45) {
+      throw new Error('this lettering is too stylized or low-contrast for on-device OCR to read reliably');
     }
     return OCR.clean(res.text ?? '');
   }

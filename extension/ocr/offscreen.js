@@ -26,9 +26,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ocrRecognize') {
     (async () => {
       const worker = await getWorker(msg.lang);
-      await worker.setParameters({ tessedit_pageseg_mode: msg.psm ?? '6' });
-      const { data } = await worker.recognize(msg.image);
-      sendResponse({ text: data.text, confidence: data.confidence });
+      // Preprocessing tournament (see ocr-prep.js): several normalisations of the crop
+      // compete and the most confident reading wins, where confidence is discounted for
+      // answers outside the expected script. Raw crops of stylized or low-contrast text
+      // used to go straight to the engine and come back as high-confidence garbage.
+      const best = await self.WG_OCR_PREP.recognizeBest(msg.image, msg.lang, async (img, psm) => {
+        await worker.setParameters({ tessedit_pageseg_mode: psm });
+        const { data } = await worker.recognize(img);
+        return { text: data.text, confidence: data.confidence };
+      });
+      sendResponse({ text: best.text, confidence: best.confidence, effective: best.effective, variant: best.variant });
     })().catch((err) => sendResponse({ error: String(err) }));
     return true;
   }
