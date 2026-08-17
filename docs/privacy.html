@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Worldglass — Privacy Policy</title>
+<style>
+  :root { --ink: #26251f; --dim: #6b6960; --rule: #e6e2d8; --bg: #faf8f3; --accent: #3a6ea5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #ece9e2; --dim: #a8a496; --rule: #3a3931; --bg: #1c1b17; --accent: #8ab4e8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.7 -apple-system, "Helvetica Neue", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 56px 24px 96px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); margin: 0 0 36px; }
+  h2 { font-size: 17px; margin: 36px 0 8px; }
+  p, li { color: var(--ink); }
+  ul { padding-left: 20px; }
+  a { color: var(--accent); }
+  .box { border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; margin: 24px 0;
+    background: color-mix(in srgb, var(--bg) 70%, transparent); }
+  .box strong { display: block; font-size: 18px; margin-bottom: 4px; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--rule);
+    color: var(--dim); font-size: 14px; }
+  code { background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy Policy — Worldglass</h1>
+  <p class="sub">Last updated 17 August 2026</p>
+
+  <div class="box">
+    <strong>Worldglass does not collect, transmit, or store any personal data.</strong>
+    There is no account, no analytics, no tracking, and no server that belongs to this
+    project. Everything happens inside your own browser.
+  </div>
+
+  <h2>What the extension does with the text you select</h2>
+  <p>When you highlight text, Worldglass looks it up in dictionary files that are bundled
+  inside the extension itself and stored on your computer. The text you select is never
+  sent anywhere. Dictionary lookup, word breakdown, and reading aids all run locally.</p>
+
+  <h2>What is stored, and where</h2>
+  <p>Worldglass saves a small amount of data using Chrome's local extension storage on
+  your own device:</p>
+  <ul>
+    <li>Your settings (Chinese reading style, script preference, text size, whether the
+      floating OCR button is shown).</li>
+    <li>Words you explicitly save with the star button, and their review progress.</li>
+    <li>Per-site language choices, when you tell Worldglass which language a site is in.</li>
+  </ul>
+  <p>This data stays on your device. It is not synced to any server by this extension, and
+  it is removed if you uninstall the extension. You can delete saved words at any time from
+  the toolbar popup.</p>
+
+  <h2>Reading text inside images (OCR)</h2>
+  <p>The OCR feature recognises text using an engine bundled with the extension. Images and
+  recognised text are processed in memory on your device and are not uploaded, stored, or
+  shared.</p>
+
+  <h2>Translating a whole sentence</h2>
+  <p>The "Translate this sentence" feature uses <em>Chrome's own built-in on-device
+  translator</em>, which runs locally on your machine. Worldglass does not operate a
+  translation service.</p>
+  <p>If that translator is unavailable and you choose to click the Google Translate link
+  shown as a fallback, that opens Google Translate in a new tab and is governed by
+  <a href="https://policies.google.com/privacy">Google's privacy policy</a>. Nothing is sent
+  unless you click that link yourself.</p>
+
+  <h2>Dictionary downloads</h2>
+  <p>Some builds fetch additional dictionary <em>data files</em> from this project's public
+  GitHub repository the first time you use a given language. These are plain data files, no
+  code is downloaded or executed, and the request contains nothing about you beyond the
+  ordinary network request GitHub receives for any public file.</p>
+
+  <h2>Why the extension asks for access to websites</h2>
+  <p>Worldglass requests access to web pages so that it can read the text you have
+  highlighted on the page you are looking at, and draw its popup there. It uses that access
+  only in response to your selection or your click. It does not read pages in the
+  background, build a browsing history, or send page contents anywhere.</p>
+
+  <h2>Children</h2>
+  <p>Worldglass is suitable for learners of any age. Because it collects no data at all, it
+  collects no data from children either.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy ever changes, the revised version will be published at this address with
+  a new date. Any change that affected data handling would be described plainly here.</p>
+
+  <h2>Contact</h2>
+  <p>Questions, or a problem to report:
+  <a href="https://github.com/victortanws/Worldglass/issues">github.com/victortanws/Worldglass/issues</a>.</p>
+
+  <footer>
+    Worldglass is created by Victor Tan. Dictionary data is derived from Wiktionary,
+    CC-CEDICT, JMdict and Tatoeba under their respective licences — see
+    <a href="https://github.com/victortanws/Worldglass/blob/main/extension/ATTRIBUTION.md">ATTRIBUTION.md</a>.
+    <br /><a href="./">← Back to Worldglass</a>
+  </footer>
+</main>
+</body>
+</html>

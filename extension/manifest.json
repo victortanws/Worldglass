@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Worldglass — multilingual reading assistant",
   "version": "2.0.0",
-  "description": "Hold any word up to the glass: Worldglass auto-detects the language and shows its reading, meaning, examples, and the characters it is built from — in Chinese, Japanese, Korean, Arabic, Jawi, Hebrew, French, German, Spanish, and Malay (more on request). OCR reads text in images. Everything runs on your device.",
+  "description": "Highlight text in 10 languages: get the sentence's meaning, then every word explained. On-device, no account, nothing sent.",
   "permissions": [
     "storage",
     "unlimitedStorage",
