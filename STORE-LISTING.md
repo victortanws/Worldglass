@@ -226,3 +226,24 @@ https://victortanws.github.io/Worldglass/privacy.html
 | Why is the package 65 MB? | Ten bundled dictionaries, so lookups work offline with nothing transmitted. Size is the direct cost of the privacy guarantee. |
 | Is any code remote? | No. All JS and WASM is in the package. |
 | Does it collect website content? | No. Highlighted text is looked up locally and immediately discarded. |
+
+---
+
+## Trader / non-trader declaration — decided, and when to revisit
+
+**Declared: NON-TRADER** (17 Aug 2026).
+
+The EEA test is scoped to "contracts made to this marketplace." Worldglass is distributed
+free, no payment passes through the store, so there is no commercial contract with users
+there. The BuyMeACoffee link does not change this: donations are gratuitous, not a contract
+for goods or services.
+
+**Switch to Trader BEFORE any of these ship:**
+
+- a paid tier, licence keys, or any in-store payment
+- an external checkout that unlocks features in the extension
+- the listing becoming a funnel to sell a service
+
+Switching is allowed at any time and restarts verification. Verification publishes your
+legal name, postal address and phone number at the bottom of the public listing — so sort
+out a business or virtual address BEFORE flipping it, not your home address.
