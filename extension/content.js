@@ -101,6 +101,10 @@
     .tok-g { font-size: calc(11px * var(--wg-scale)); line-height: 1.3; color: #7c7970; max-width: 92px; white-space: normal;
              overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     .tok-g.gram { font-style: italic; opacity: .85; }
+    /* Composed reading: dotted, because the word is a guess assembled from its parts.
+       Mandarin stand-in: italic and dimmed, because it is a different language entirely. */
+    rt.rd-approx, .py.rd-approx { border-bottom: 1px dotted currentColor; opacity: .8; }
+    rt.rd-sub, .py.rd-sub { font-style: italic; opacity: .65; }
     .tok-g:empty::after { content: '·'; opacity: .3; }
     .selline.alpha .tok-col { margin-right: 9px; }
     .readrow { margin: 2px 0 4px; padding: 7px 9px; background: #f6f4ee; border-radius: 8px; font-size: 13.5px; line-height: 1.5; color: #3f3d36; }
@@ -382,9 +386,25 @@
     }
   }
 
-  function rubyNode(word, reading, clickable, pieces, lang) {
+  // A dialect reading reaches the screen three ways (see zhxReadingFor): attested in the
+  // dictionary, composed from single characters, or Mandarin standing in because the
+  // dialect has no reading at all. Only the first is trustworthy, and until now all three
+  // rendered as the same plain string under the same 粤/闽/潮 chip. Composed readings get
+  // a dotted underline; a Mandarin stand-in is named outright, because showing pinyin
+  // under a Teochew chip is not an approximation, it is the wrong language.
+  const READING_NOTE = {
+    composed: 'stitched from each character on its own — not a recorded reading of this word',
+    mandarin: 'Mandarin pinyin: this dialect has no recorded reading for these characters',
+  };
+
+  function rubyNode(word, reading, clickable, pieces, lang, psrc) {
     const holder = document.createElement('span');
     appendRuby(holder, pieces ?? [[word, reading ?? null]]);
+    const note = READING_NOTE[psrc];
+    if (note && reading) {
+      for (const rt of holder.querySelectorAll('rt')) rt.classList.add(psrc === 'composed' ? 'rd-approx' : 'rd-sub');
+      holder.title = `${reading} — ${note}`;
+    }
     // Tag the language so a screen reader switches voice instead of reading Chinese with
     // an English one, and so the browser picks a font that renders the script properly.
     const code = LANG_META[lang ?? currentLang]?.tr;
@@ -396,7 +416,9 @@
     // mouse — the popup was otherwise a dead end for anyone not using a pointer.
     holder.tabIndex = 0;
     holder.setAttribute('role', 'button');
-    holder.setAttribute('aria-label', `${word} — look up`);
+    holder.setAttribute('aria-label', READING_NOTE[psrc]
+      ? `${word} — look up. Reading ${psrc === 'composed' ? 'is stitched from single characters' : 'shown in Mandarin'}.`
+      : `${word} — look up`);
     if (lang) holder.dataset.lang = lang; // set on mixed-selection tokens so clicks use the right dict
     return holder;
   }
@@ -413,7 +435,7 @@
   function renderTokens(tokens, container, withGloss) {
     if (!withGloss) {
       for (const tok of tokens) {
-        if (tok.han) container.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang));
+        if (tok.han) container.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang, tok.ps));
         else container.append(tok.w);
       }
       return;
@@ -432,7 +454,7 @@
       col.className = 'tok-col';
       const wordEl = document.createElement('span');
       wordEl.className = 'tok-w';
-      const node = rubyNode(tok.w, tok.p, true, tok.f, tok.lang);
+      const node = rubyNode(tok.w, tok.p, true, tok.f, tok.lang, tok.ps);
       // Speak the meaning with the word. The gloss sits in a sibling element, so without
       // this a screen-reader user hears the foreign word and nothing that explains it.
       if (tok.g) node.setAttribute('aria-label', `${tok.w} — ${tok.g}. Look up.`);
@@ -941,7 +963,19 @@
           py.className = 'py';
           py.setAttribute('dir', meta().dir === 'rtl' ? 'rtl' : 'auto');
           py.textContent = e0.p;
-          hdr.appendChild(py);
+          // The entry panel has room for words, so say it plainly here rather than hiding
+          // the caveat in a tooltip. Someone opening the full entry is looking closely.
+          if (READING_NOTE[e0.ps]) {
+            py.classList.add(e0.ps === 'composed' ? 'rd-approx' : 'rd-sub');
+            py.title = READING_NOTE[e0.ps];
+            const cav = document.createElement('span');
+            cav.className = 'var';
+            cav.textContent = e0.ps === 'composed' ? 'stitched from characters' : 'Mandarin — no dialect reading';
+            hdr.appendChild(py);
+            hdr.appendChild(cav);
+          } else {
+            hdr.appendChild(py);
+          }
         }
         if (e0.p2 && e0.p2 !== e0.p) addVar(`pinyin ${e0.p2}`);
         if (res.base) addVar(res.tentative ? `≈ ${res.base}?` : `« ${res.base}`);
@@ -1082,7 +1116,7 @@
         card.className = 'char';
         const hz = document.createElement('div');
         hz.className = 'hz';
-        hz.appendChild(rubyNode(c.ch, c.p, true));
+        hz.appendChild(rubyNode(c.ch, c.p, true, null, null, c.ps));
         card.appendChild(hz);
         if (c.gloss) {
           const g = document.createElement('div');

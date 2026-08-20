@@ -87,25 +87,41 @@ let zhxReadings = {};
 
 const ZHX_READING_SLOT = { yue: 0, nan: 1, teo: 2 };
 
+// A dialect reading can reach the screen three different ways, and until now all three
+// looked identical — a bare string under a 粤/闽/潮 chip:
+//
+//   attested  the dictionary holds this exact word in this dialect. Trustworthy.
+//   composed  no entry for the word, so its characters' readings were glued together.
+//             Hokkien and Teochew have pervasive tone sandhi, and 子 as a noun suffix is
+//             -á, not chú — so 杯子 comes out "poe chú", a word nobody says. Across the
+//             17,700 HSK words this is ~1% of Jyutping, ~16% of Hokkien and ~50% of
+//             Teochew: for Teochew, a coin flip.
+//   mandarin  the dialect has no reading for some character, so MANDARIN PINYIN is shown
+//             under a dialect chip. The worst of the three, because it is not even the
+//             right language and nothing said so.
+//
+// The reader most able to detect any of this — someone who speaks the dialect and reads
+// slowly — is exactly the reader this feature exists for. Return the provenance so the UI
+// can say which one it is instead of presenting all three with equal confidence.
 function zhxReadingFor(mode, numberedPinyin, ...wordForms) {
   const fallback = numberedPinyin ? zhxMandarin(numberedPinyin) : null;
   const slot = ZHX_READING_SLOT[mode];
-  if (slot === undefined) return fallback;
+  if (slot === undefined) return { p: fallback, src: 'man' };
   for (const w of wordForms) {
     const direct = w && zhxReadings[w]?.[slot];
-    if (direct) return direct;
+    if (direct) return { p: direct, src: 'attested' };
   }
   const word = wordForms.find(Boolean);
   if (word && word.length > 1) {
     const parts = [];
     for (const ch of word) {
       const r = zhxReadings[ch]?.[slot];
-      if (!r) return fallback;
+      if (!r) return { p: fallback, src: 'mandarin' };
       parts.push(r.split(/[,;/]/)[0].trim());
     }
-    return parts.join(' ');
+    return { p: parts.join(' '), src: 'composed' };
   }
-  return fallback;
+  return { p: fallback, src: 'mandarin' };
 }
 
 function zhxEnsureDict() {
@@ -257,7 +273,8 @@ function zhxFamily(ch, exclude, mode, limit) {
   return words.slice(0, limit ?? 10).map((w) => {
     const entry = zhxPickEntry(w, zhxIndex.get(w));
     const gloss = entry.d.find((d) => !/^CL:/.test(d)) ?? entry.d[0] ?? '';
-    return { w, p: zhxReadingFor(mode, entry.p, w, entry.s, entry.t), g: gloss, h: zhxHsk[w] ?? 0 };
+    const rd = zhxReadingFor(mode, entry.p, w, entry.s, entry.t);
+    return { w, p: rd.p, ps: rd.src, g: gloss, h: zhxHsk[w] ?? 0 };
   });
 }
 
@@ -402,12 +419,14 @@ function zhxSegmentRun(run, mode) {
       }
     }
     if (!word) {
-      tokens.push({ w: run[i], p: zhxReadingFor(mode, null, run[i]), han: true, h: zhxHsk[run[i]] ?? 0 });
+      const rd1 = zhxReadingFor(mode, null, run[i]);
+      tokens.push({ w: run[i], p: rd1.p, ps: rd1.src, han: true, h: zhxHsk[run[i]] ?? 0 });
       i += 1;
     } else {
       const entries = zhxIndex.get(word);
       const entry = zhxPickEntry(word, entries);
-      tokens.push({ w: word, p: zhxReadingFor(mode, entry.p, word, entry.s, entry.t), g: zhxTokenGloss(entry, entries), han: true, h: zhxHsk[word] ?? 0 });
+      const rd2 = zhxReadingFor(mode, entry.p, word, entry.s, entry.t);
+      tokens.push({ w: word, p: rd2.p, ps: rd2.src, g: zhxTokenGloss(entry, entries), han: true, h: zhxHsk[word] ?? 0 });
       i += word.length;
     }
   }
@@ -450,7 +469,7 @@ function zhxCharBreakdown(word, wordPinyin, mode) {
   const syls = wordPinyin ? wordPinyin.split(' ') : [];
   return [...word].map((ch, i) => {
     const entries = zhxIndex.get(ch);
-    if (!entries) return { ch, p: zhxReadingFor(mode, null, ch), gloss: null };
+    if (!entries) { const r0 = zhxReadingFor(mode, null, ch); return { ch, p: r0.p, ps: r0.src, gloss: null }; }
     const target = syls[i] ? syls[i].toLowerCase() : null;
     const candidates = target ? entries.filter((e) => e.p.toLowerCase() === target) : [];
     const match = candidates.find((e) => !/^[A-Z]/.test(e.p))
@@ -458,7 +477,8 @@ function zhxCharBreakdown(word, wordPinyin, mode) {
       ?? entries.find((e) => !/^[A-Z]/.test(e.p))
       ?? entries[0];
     const gloss = match.d.find((def) => !/^variant of|^see |^surname /i.test(def)) ?? match.d[0];
-    return { ch, p: zhxReadingFor(mode, match.p, ch), gloss };
+    const rc = zhxReadingFor(mode, match.p, ch);
+    return { ch, p: rc.p, ps: rc.src, gloss };
   });
 }
 
@@ -574,7 +594,8 @@ async function zhxHandle(msg) {
       entries: entries.map((e) => ({
         s: e.s,
         t: e.t,
-        p: zhxReadingFor(mode, e.p, msg.word, e.s, e.t),
+        p: zhxReadingFor(mode, e.p, msg.word, e.s, e.t).p,
+        ps: zhxReadingFor(mode, e.p, msg.word, e.s, e.t).src,
         p2: dialect ? zhxAccent(e.p) : undefined,
         pn: e.p,
         defs: e.d.filter((d) => !/^CL:/.test(d)),
