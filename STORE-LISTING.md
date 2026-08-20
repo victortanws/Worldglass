@@ -89,7 +89,7 @@ Save any word with a tap. Worldglass will bring it back for review on a spaced s
 ALSO
 • Adjustable text size, full keyboard control, and screen-reader support
 • Tell it which language a particular site is in, and it remembers
-• Free and open source
+• Free, with no account, no ads, and no data collection
 
 Other languages on request. Found a wrong entry? There's a report link in every popup.
 
@@ -226,6 +226,26 @@ https://victortanws.github.io/Worldglass/privacy.html
 | Why is the package 65 MB? | Ten bundled dictionaries, so lookups work offline with nothing transmitted. Size is the direct cost of the privacy guarantee. |
 | Is any code remote? | No. All JS and WASM is in the package. |
 | Does it collect website content? | No. Highlighted text is looked up locally and immediately discarded. |
+
+---
+
+## Two corrections found in the post-launch audit (2026-08-20)
+
+**1. "Free and open source" was removed from the detailed description.** The public
+Worldglass repo has NO LICENSE file (`gh repo view` reports `license: null`), so the code
+is publicly *visible* but carries no open-source grant. Publishing that bullet would have
+been an inaccurate claim, and it would also have made a later paid tier read as a broken
+promise. Replaced with "Free, with no account, no ads, and no data collection", which is
+true and forecloses nothing. If you DO want it open source, add a LICENSE file first and
+put the bullet back.
+
+**2. Do not upload `~/Worldglass/dist/worldglass-v2.0.0-store.zip`.** That file is a stale
+SLIM build from 19 July (29 MB). The SLIM build deliberately omits the es/ja/fr/de
+dictionaries and downloads them from GitHub at runtime — which would contradict the
+"no remote code / nothing transmitted" answers in §3 of this document. The correct
+artefact is the 65 MB zip in the dated inbox folder, built from the full
+`OUT=~/Worldglass/extension node scripts/build-lens.mjs` path, with all ten dictionaries
+physically present. Verified: es 9.2M, ja 15M, fr 5.8M, de 6.7M all bundled.
 
 ---
 
