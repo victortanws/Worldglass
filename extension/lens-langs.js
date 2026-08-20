@@ -2101,7 +2101,7 @@ function zhxFetchDict(rel) {
   });
 }
 const ZHX_WORD_RUN = /[\u0600-\u06FF\u0750-\u077F]+/g;
-function zhxBare(w) { return (w ?? '').replace(/[\u064B-\u065F\u0670\u0640\u05B0-\u05BD\u05C1\u05C2\u05C7]/g, ''); }
+function zhxBare(w) { return (w ?? '').replace(/[\u064B-\u065F\u0670\u0640\u05B0-\u05BD\u05C1\u05C2\u05C7]/g, '').replace(/\u0643/g, '\u06A9').replace(/\u06CC/g, '\u064A').replace(/\u06AF/g, '\u0762'); }
 const ZHX_TR = { 'چ': 'c', 'ڠ': 'ng', 'ڤ': 'p', 'ݢ': 'g', 'ڽ': 'ny', 'ۏ': 'v', 'ک': 'k', 'ݣ': 'g', 'ا': 'a', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'dh', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd', 'ط': 't', 'ظ': 'z', 'ع': "'", 'غ': 'gh', 'ف': 'f', 'ق': 'k', 'ك': 'k', 'ل': 'l', 'م': 'm', 'ن': 'n', 'ه': 'h', 'و': 'w', 'ي': 'y', 'ى': 'a', 'ء': "'", 'ة': 'h', 'ڬ': 'g' };
 function zhxTranslit(word) {
   let out = '';

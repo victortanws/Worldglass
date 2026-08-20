@@ -67,7 +67,7 @@ There's nothing to configure and no language to pick. Worldglass reads the chara
 WHAT YOU GET WHEN YOU HIGHLIGHT
 • The sentence's meaning, up front
 • Every word with its pronunciation and meaning underneath
-• Chinese: pinyin, plus Cantonese (Jyutping), Hokkien (Tâi-lô) and Teochew readings — switchable, and Simplified or Traditional as you prefer
+• Chinese: pinyin, plus Cantonese (Jyutping), Hokkien (Pe̍h-ōe-jī) and Teochew readings — switchable, and Simplified or Traditional as you prefer
 • Japanese: furigana over kanji, and conjugated verbs traced back to their dictionary form
 • Korean: verb endings named, so you can see the tense, politeness and grammar working
 • Malay: prefixes and suffixes taken apart, so menggunakan is visibly built from guna

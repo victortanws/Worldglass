@@ -25,7 +25,13 @@
     es:   { name: 'Spanish',  tts: 'es-ES', tr: 'es', ocr: 'spa',     dir: 'ltr' },
     ms:   { name: 'Malay',    tts: 'ms-MY', tr: 'ms', ocr: 'msa',     dir: 'ltr' },
   };
-  const TTS_YUE = { man: 'zh-CN', yue: 'zh-HK', nan: 'zh-TW', teo: 'zh-HK' };
+  // Speech engines ship no Hokkien or Teochew voice, so those readings cannot be spoken as
+  // written. Teochew mode was playing a CANTONESE voice under a 潮 label — a different
+  // language entirely, in the one modality a partially-literate reader cannot check against
+  // the text on screen. Both dialect modes now fall back to Mandarin, which is unambiguously
+  // not the selected reading, and the button says so instead of pretending.
+  const TTS_YUE = { man: 'zh-CN', yue: 'zh-HK', nan: 'zh-CN', teo: 'zh-CN' };
+  const TTS_SUBSTITUTE = { nan: 'Hokkien', teo: 'Teochew' };
 
   // Attribution + support links for the unintrusive popup footer.
   const CREDIT = {
@@ -600,7 +606,12 @@
   function speakButton(text, title) {
     const btn = document.createElement('button');
     btn.className = 'icon';
-    btn.title = title ?? 'Pronounce';
+    // Name the substitution on the control itself, so nobody hears Mandarin and takes it
+    // for the Hokkien or Teochew reading printed beside it.
+    const missing = currentLang === 'zh' ? TTS_SUBSTITUTE[readingMode] : null;
+    const label = title ?? 'Pronounce';
+    btn.title = missing ? `${label} in Mandarin — no ${missing} voice exists on this device` : label;
+    btn.setAttribute('aria-label', btn.title);
     btn.textContent = '🔊';
     btn.addEventListener('click', (ev) => { ev.stopPropagation(); speak(text); });
     return btn;
