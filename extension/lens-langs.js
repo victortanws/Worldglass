@@ -171,10 +171,37 @@ function zhxClassifiers(entries) {
 function zhxPickEntry(word, entries) {
   const pref = ZHX_PRIORITY[word];
   if (pref) {
-    const hit = entries.find((e) => e.p.toLowerCase() === pref);
+    // Exact case first: the pin says zhong1, and Zhong1 ("China; surname Zhong") is a
+    // DIFFERENT row that happens to match case-insensitively — it hijacked every pinned
+    // word that has a capitalized twin.
+    const hit = entries.find((e) => e.p === pref)
+      ?? entries.find((e) => e.p.toLowerCase() === pref && !/^[A-Z]/.test(e.p))
+      ?? entries.find((e) => e.p.toLowerCase() === pref);
     if (hit) return hit;
   }
-  return entries.find((e) => !/^[A-Z]/.test(e.p)) ?? entries[0];
+  // Among plain rows, the reading with the most senses is almost always the everyday
+  // one: zhong4dian3 "emphasis" (3 defs) over chong2dian3 "to recount" (2), he2 "and"
+  // over he4 "to chime in". File order was breaking these ties against the reader.
+  const plain = entries.filter((e) => !/^[A-Z]/.test(e.p));
+  if (plain.length) {
+    // The def-count signal chooses between READINGS (zhong4dian3 over chong2dian3), so
+    // sum defs per reading — then keep the FIRST row of the winning reading, preserving
+    // source order. Comparing rows directly let a two-line Cantonese-source row outrank
+    // CC-CEDICT's own "military force" for 武力.
+    // Judge a reading by its RICHEST row, not the sum: a merged wordlist row for 重点
+    // carries the zhong4 meaning under a mistagged chong2 reading, and summing let that
+    // stray row tie the vote. One three-sense CC-CEDICT row is stronger evidence of the
+    // everyday reading than two thin rows agreeing with each other.
+    const byReading = new Map();
+    for (const e of plain) {
+      const k = e.p.toLowerCase();
+      byReading.set(k, Math.max(byReading.get(k) ?? 0, e.d?.length ?? 0));
+    }
+    let bestK = null, bestN = -1;
+    for (const [k, n] of byReading) if (n > bestN) { bestK = k; bestN = n; }
+    return plain.find((e) => e.p.toLowerCase() === bestK) ?? plain[0];
+  }
+  return entries[0];
 }
 
 // Word families: given a character, the common multi-character words built from it.
@@ -250,30 +277,85 @@ const ZHX_FUNC_GLOSS = {
   说: 'to speak/say', 着: '(-ing)', 过: '(experience)', 地: '(-ly)', 得: '(degree)',
   才: 'only then', 又: 'again', 再: 'again', 最: 'most', 语: 'language', 与: 'and/with',
   本: '(measure/origin)', 多少: 'how much/many', 钱: 'money', 块: '(yuan)/piece', 位: '(measure, polite)',
+  // First-def order in CC-CEDICT buries the reading a sentence usually needs.
+  等: 'etc. · to wait', 故: 'therefore · reason', 为: 'for/as/(is)', 由: 'by/from', 将: 'will/(object marker)',
+  我的: 'my/mine', 你的: 'your/yours', 他的: 'his', 她的: 'her/hers', 它的: 'its',
 };
 
 // Short per-word gloss for interlinear display. Scans the picked entry first, then the
 // word's other entries — variant-pointer rows ("variant of 宣佈") often sit beside a real
 // entry that carries the meaning.
+function zhxCleanDef(d) {
+  // Strip bracketed pinyin, keep the simplified half of trad|simp pairs, drop ALL
+  // leading parenthesized register tags — 他 opens with two of them.
+  return d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
+    .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
+}
+
 function zhxTokenGloss(entry, entries) {
   const fn = ZHX_FUNC_GLOSS[entry.s] ?? ZHX_FUNC_GLOSS[entry.t];
   if (fn) return fn;
+  // CC-CEDICT files a word's rows in an order that buries the everyday meaning: 以 is
+  // two self-referential "old variant of 以" rows, then "abbr. for Israel", and only
+  // THEN "to use; by means of" — so 以武力 ("using military force") glossed as Israel.
+  // Rule: a variant def is followed to its target's meaning, an abbreviation def is
+  // reduced to its English tail, and anything derived that way may only LEAD the gloss
+  // when the word has no plain meaning at all (台海 really is just "Taiwan Strait").
+  const senses = [];
+  const seen = new Set();
+  const push = (text, derived) => {
+    // Numbered defs ("1. Hurt") are enumeration debris from a merged source, not senses.
+    if (/^\d+\s*[.、]/.test(text)) return;
+    const t = zhxFit(text, 26);
+    if (!t || !/^[A-Za-z0-9(]/.test(t) || /[㐀-䶿一-鿿]/.test(t)) return;
+    const key = t.toLowerCase().replace(/^to\s+/, '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    senses.push({ t, derived });
+  };
   for (const e of [entry, ...(entries ?? []).filter((x) => x !== entry)]) {
     for (const d of e.d) {
-      if (/^CL:/.test(d) || /^(?:variant of|old variant of|see )/.test(d)) continue;
-      // "classifier for sports and tasks" describes usage, not meaning. Prefer a real
-      // def from any row; if the word IS just a measure word, say that in two words.
+      if (/^CL:/.test(d) || /^see (?:also )?/.test(d) || /^used in\b/.test(d)) continue;
       if (/^(?:classifier for|measure word)/i.test(d)) continue;
-      // Strip ALL leading parenthesized register tags — 他 opens with two of them.
-      let s = d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
-        .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
-      if (!s) continue;
-      return zhxFit(s, 26);
+      const varm = d.match(/^(?:old )?variant of\s+([㐀-䶿一-鿿豈-﫿]+)/);
+      if (varm) {
+        // 台灣's only row under its own spelling is "variant of 臺灣" — skipping it
+        // left Taiwan itself glossless. Follow the pointer to the target's meaning.
+        const target = varm[1].split('|')[0];
+        const surface = entry.t ?? entry.s ?? '';
+        if (target && target !== surface && target !== (entry.s ?? '')) {
+          for (const te of zhxIndex.get(target) ?? []) {
+            const good = (te.d ?? []).find((x) => !/^(?:CL:|(?:old )?variant of|see |abbr\.)/.test(x) && !/^(?:classifier for|measure word)/i.test(x));
+            if (good) { push(zhxCleanDef(good), true); break; }
+          }
+        }
+        continue;
+      }
+      if (/^abbr\. (?:for|of)\b/.test(d) || /\babbr\. (?:for|of)\b/.test(d)) {
+        // "abbr. for Israel 以色列[Yi3 se4 lie4]" carries its meaning in plain English;
+        // keep "Israel", drop the machinery.
+        const tail = zhxCleanDef(d.replace(/^.*?abbr\. (?:for|of)\s*/, '').replace(/[㐀-䶿一-鿿豈-﫿]+/g, ' ')
+          .replace(/\|/g, ' ').replace(/\s{2,}/g, ' ').replace(/^[\s,;|]+/, ''));
+        if (tail) push(tail, true);
+        continue;
+      }
+      const t = zhxCleanDef(d);
+      if (t) push(t, false);
     }
   }
-  // Every def was classifier prose — the word really is a measure word; name the role.
-  if ((entry.d ?? []).some((d) => /^(?:classifier for|measure word)/i.test(d))) return '(measure word)';
-  return null;
+  const plain = senses.filter((x) => !x.derived);
+  const lead = plain[0] ?? senses[0];
+  const plainBonus = plain.find((x) => x !== lead);
+  if (!lead) {
+    // Every def was classifier prose — the word really is a measure word; name the role.
+    if ((entry.d ?? []).some((d) => /^(?:classifier for|measure word)/i.test(d))) return '(measure word)';
+    return null;
+  }
+  // A plain second meaning beats a derived one: 以 reads "to use · by means of", with
+  // the Israel abbreviation left to the full entry rather than the six characters of
+  // bonus space.
+  const bonus = plainBonus ?? senses.find((x) => x !== lead);
+  return bonus ? zhxFit(lead.t + ' \u00b7 ' + bonus.t, 26) : lead.t;
 }
 
 // Rare-but-greedy words that hijack maximum matching: 在下 ("your humble servant") steals
@@ -298,6 +380,26 @@ function zhxSegmentRun(run, mode) {
       }
       word = cand;
       break;
+    }
+    // Greedy max-match strands single characters: 台灣人民 became 台灣人 + orphan 民,
+    // because 台灣人 is a real word and nothing starts at 民. When the char after the
+    // match is stranded AND re-splitting the boundary yields two real words, take the
+    // balanced split (台灣 + 人民). Every piece must be a dictionary word, so this only
+    // ever trades one valid reading for a strictly more complete one.
+    if (word && word.length >= 2 && i + word.length < run.length) {
+      const j = i + word.length;
+      let stranded = true;
+      for (let l2 = Math.min(zhxMaxLen, run.length - j); l2 >= 2; l2--) {
+        if (zhxIndex.has(run.slice(j, j + l2))) { stranded = false; break; }
+      }
+      if (stranded && zhxIndex.has(word.slice(0, -1)) && zhxIndex.has(word.slice(-1) + run[j])) {
+        // Frequency guard: only rebalance when the new pair is at least as common as the
+        // word it breaks (HSK level, lower = more basic; absent = 99). Without it, 任何以…
+        // became 任 + 何以 ("why", literary) — trading an everyday word for a rare one.
+        const pair = word.slice(-1) + run[j];
+        const lvl = (w) => zhxHsk[w] || 99;
+        if (lvl(pair) <= lvl(word)) word = word.slice(0, -1);
+      }
     }
     if (!word) {
       tokens.push({ w: run[i], p: zhxReadingFor(mode, null, run[i]), han: true, h: zhxHsk[run[i]] ?? 0 });
