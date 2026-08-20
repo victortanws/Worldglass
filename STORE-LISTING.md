@@ -81,7 +81,7 @@ BUILT TO BE HONEST
 A learning tool has to be trustworthy, so Worldglass would rather show you nothing than something invented. Where a dictionary only describes a word's grammatical form, it stays quiet instead of filling the space with jargon. Where a word is genuinely ambiguous, it shows you both readings and lets the sentence decide.
 
 EVERYTHING RUNS ON YOUR DEVICE
-No account. No sign-up. No analytics. No server. The dictionaries live inside the extension, on your computer, and the text you highlight is never sent anywhere. It works on a plane.
+No account. No sign-up. No server. Nothing about you is transmitted to anyone. The dictionaries live inside the extension, on your computer, and the text you highlight is never sent anywhere. It works on a plane.
 
 REMEMBER WHAT YOU READ
 Save any word with a tap. Worldglass will bring it back for review on a spaced schedule, asking you to recall it before it shows you the answer — the way memory research says it actually sticks. No points, no streaks, no guilt. Export to Anki or CSV whenever you want.
@@ -171,7 +171,8 @@ ten languages, so nothing at all is fetched.)
 - [ ] Personal communications — **no**
 - [ ] Location — **no**
 - [ ] Web history — **no**
-- [ ] User activity — **no**
+- [ ] User activity — **no** (a private count of your own use is kept on your device and
+      never transmitted; the store's question is about COLLECTION, and nothing is collected)
 - [ ] Website content — **no**
 
 > On "Website content": Worldglass reads highlighted text only to look it up locally, and

@@ -20,6 +20,10 @@
     button.act { font: inherit; font-size: 12px; cursor: pointer; padding: 3px 10px; border: 1px solid #c9d8ea; border-radius: 6px; background: #fff; color: #3a6ea5; }
     button.act:hover { background: #e3edfb; }
     .empty { color: #8a8781; font-size: 12px; font-style: italic; }
+    .stats { font-size: 12px; color: #6b6960; line-height: 1.65; }
+    .stats b { color: #26251f; font-weight: 600; }
+    .stats .priv { display: block; margin-top: 4px; color: #8a8781; font-size: 11px; }
+    .stats button.link { all: unset; cursor: pointer; color: #a32d2d; text-decoration: underline; font-size: 11px; }
     #shelves { display: flex; gap: 6px; margin: 2px 0 2px; }
     .shelf { flex: 1; text-align: center; border: 1px solid #ece5d6; border-radius: 8px; padding: 6px 2px; }
     .shelf .n { font-size: 18px; font-weight: 600; display: block; color: #26251f; }
@@ -71,6 +75,8 @@
     <span id="site-lang"></span>
     <button class="act" id="site-clear">Forget</button>
   </div>
+  <h2>Your reading</h2>
+  <div id="stats" class="stats"></div>
   <h2>Your words</h2>
   <div id="shelves"></div>
   <button class="act" id="review" style="margin-top:6px;display:none">Review now</button>

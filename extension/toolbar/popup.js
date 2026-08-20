@@ -39,6 +39,48 @@ document.getElementById('site-clear').addEventListener('click', async () => {
   siteRow.style.display = 'none';
 });
 
+// The tally is the reader's, so they can see all of it and delete it in one click. A count
+// kept where its owner cannot read it is not a private record, it is just an unadvertised
+// one. Nothing here has ever left the device.
+const statsEl = document.getElementById('stats');
+const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+async function renderStats() {
+  const { zhxStats } = await chrome.storage.local.get('zhxStats');
+  statsEl.textContent = '';
+  if (!zhxStats?.days) {
+    statsEl.innerHTML = '<span class="priv">Nothing recorded yet. Worldglass keeps a private count of your own reading, on this device only — never sent anywhere.</span>';
+    return;
+  }
+  const days = zhxStats.days;
+  let sel = 0, look = 0, save = 0, rev = 0, ocr = 0;
+  for (const d of Object.values(days)) {
+    sel += d.sel ?? 0; look += d.look ?? 0; save += d.save ?? 0; rev += d.rev ?? 0; ocr += d.ocr ?? 0;
+  }
+  // "Active days in the last 7" is the honest week-4 retention question, asked locally.
+  const week = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(); d.setDate(d.getDate() - i); week.push(dayKey(d)); }
+  const activeWeek = week.filter((k) => days[k]).length;
+  const totalDays = Object.keys(days).length;
+  const line = document.createElement('div');
+  line.innerHTML = `Read on <b>${activeWeek}</b> of the last 7 days · <b>${totalDays}</b> ${totalDays === 1 ? 'day' : 'days'} in total`;
+  const line2 = document.createElement('div');
+  line2.innerHTML = `<b>${sel}</b> selections · <b>${look}</b> word lookups · <b>${save}</b> saved`
+    + (rev ? ` · <b>${rev}</b> reviewed` : '') + (ocr ? ` · <b>${ocr}</b> image reads` : '');
+  const priv = document.createElement('span');
+  priv.className = 'priv';
+  priv.textContent = `Counted on this device since ${zhxStats.first ?? '—'}. Never transmitted. `;
+  const del = document.createElement('button');
+  del.className = 'link';
+  del.textContent = 'Delete this history';
+  del.addEventListener('click', async () => {
+    await chrome.storage.local.remove('zhxStats');
+    renderStats();
+  });
+  priv.appendChild(del);
+  statsEl.append(line, line2, priv);
+}
+
 const shelvesEl = document.getElementById('shelves');
 const reviewBtn = document.getElementById('review');
 const WG_KNOWN = 4;
@@ -67,7 +109,10 @@ async function renderSaved() {
   // Shelves mirror competence (no points): learning / known-by-heart, plus how many are due.
   const now = Date.now();
   const counts = { new: 0, learning: 0, known: 0, due: 0 };
-  for (const [, e] of words) { counts[wgState(e)]++; if ((e.due ?? 0) <= now) counts.due++; }
+  // Must agree with wgDue in content.js: a word with no definition is collectable but can
+  // never be a review card, because the forced-choice question would have no right answer.
+  // Counting it here would promise a review the engine then refuses to serve.
+  for (const [, e] of words) { counts[wgState(e)]++; if (e.d && (e.due ?? 0) <= now) counts.due++; }
   const shelves = [
     ['learning', 'learning', counts.new + counts.learning],
     ['known', 'known by heart', counts.known],
@@ -127,3 +172,4 @@ document.getElementById('ocr').addEventListener('click', async () => {
 });
 
 renderSaved();
+renderStats();

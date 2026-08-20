@@ -512,6 +512,7 @@
         }
       } catch { /* offline or context gone: keep what the interlinear already showed */ }
       await toggleSaved(tok.w, wgRecord({ p, d, lang: tok.lang ?? currentLang, ctx }));
+      bump('save');
       paint(true);
       refreshReviewBar();
     });
@@ -686,6 +687,13 @@
     return btn;
   }
 
+  // Fire-and-forget. Counting must never delay a lookup or throw when the extension has
+  // been reloaded out from under the page. The service worker owns the write (see
+  // background.js) because this script runs in every frame.
+  function bump(kind, word) {
+    try { chrome.runtime.sendMessage({ type: 'wgStat', kind, word })?.catch?.(() => {}); } catch { /* context gone */ }
+  }
+
   async function getSaved() {
     const { zhxSaved = {} } = await chrome.storage.local.get('zhxSaved');
     return zhxSaved ?? {};
@@ -780,6 +788,7 @@
     let i = 0;
 
     async function grade(word, correct) {
+      bump('rev');
       const e = saved[word];
       if (correct) e.correct = (e.correct ?? 0) + 1;
       const wasKnown = (e.box ?? 1) >= WG_KNOWN;
@@ -1083,7 +1092,7 @@
             lang: currentLang,
             ctx: selState?.text,
           }));
-          if (on) refreshReviewBar();
+          if (on) { bump('save'); refreshReviewBar(); }
           star.textContent = on ? '★' : '☆';
           star.classList.toggle('on', on);
         });
@@ -1251,6 +1260,7 @@
 
   async function openEntry(level, word, getRect) {
     ensureUI();
+    bump('look', word);
     let pop;
     if (level === 1) {
       closePopup(1);
@@ -1382,6 +1392,7 @@
 
   async function openSelection(text, getRect, truncated, det) {
     ensureUI();
+    bump('sel');
     selState = { text, getRect, truncated };
     const seq = ++renderSeq;
     // Slim builds download the biggest dictionaries on first use. If the first response
@@ -1794,6 +1805,7 @@
 
   window.addEventListener('zhx-ocr-open', async (ev) => {
     ensureUI();
+    bump('ocr');
     const { text, rect } = ev.detail;
     // Snipped text routes through the same chain as a selection — it is text like any
     // other, and the reader's site preference should apply to it too.
