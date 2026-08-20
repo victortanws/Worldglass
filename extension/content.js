@@ -107,6 +107,12 @@
     rt.rd-sub, .py.rd-sub { font-style: italic; opacity: .65; }
     .tok-g:empty::after { content: '·'; opacity: .3; }
     .selline.alpha .tok-col { margin-right: 9px; }
+    .tok-col { position: relative; }
+    .tok-star { all: unset; position: absolute; top: -2px; right: -2px; cursor: pointer;
+      font-size: 11px; line-height: 1; color: #b0ada5; opacity: 0; transition: opacity .12s; }
+    .tok-col:hover .tok-star, .tok-star:focus-visible, .tok-star.on { opacity: 1; }
+    .tok-star.on { color: #d8a13a; }
+    .tok-star:focus-visible { outline: 2px solid #3a6ea5; outline-offset: 1px; border-radius: 3px; }
     .readrow { margin: 2px 0 4px; padding: 7px 9px; background: #f6f4ee; border-radius: 8px; font-size: 13.5px; line-height: 1.5; color: #3f3d36; }
     .readrow .lab { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: #8a8781; margin-bottom: 2px; }
     /* The fluent sentence leads the popup, so it reads as the answer rather than an afterthought. */
@@ -432,7 +438,7 @@
   //  * punctuation rides on the preceding word ("Johor." not "Johor ." );
   //  * the gloss is width-capped and wraps, so one long gloss can't blow a column wide
   //    and strand its neighbours in whitespace.
-  function renderTokens(tokens, container, withGloss) {
+  function renderTokens(tokens, container, withGloss, ctx) {
     if (!withGloss) {
       for (const tok of tokens) {
         if (tok.han) container.appendChild(rubyNode(tok.w, tok.p, true, tok.f, tok.lang, tok.ps));
@@ -466,9 +472,50 @@
       if (tok.g && /^\(/.test(tok.g)) gl.classList.add('gram');
       gl.textContent = tok.g ?? '';
       col.append(wordEl, gl);
+      // Save straight from the breakdown. Collecting a word used to cost four interactions
+      // — drag, click the word, wait for the entry popup, then find the star — which is why
+      // nothing ever accumulated. The star is quiet until the column is hovered or focused,
+      // and stays lit once the word is kept.
+      col.appendChild(tokenStar(tok, ctx));
       container.appendChild(col);
       lastWordEl = wordEl;
     }
+  }
+
+  // The interlinear token carries `g` — a single width-capped gloss — not the `defs`
+  // array, so the real definition is fetched by an actual lookup ON CLICK. Doing it at
+  // render time would fire a round trip per column, sixteen of them for one sentence,
+  // for words the reader never asked about.
+  function tokenStar(tok, ctx) {
+    const star = document.createElement('button');
+    star.className = 'tok-star';
+    star.textContent = '☆';
+    star.title = `Save ${tok.w}`;
+    star.setAttribute('aria-label', `Save ${tok.w}`);
+    const paint = (on) => {
+      star.textContent = on ? '★' : '☆';
+      star.classList.toggle('on', on);
+      star.setAttribute('aria-pressed', String(on));
+    };
+    getSaved().then((s) => { if (s[tok.w]) paint(true); });
+    star.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const saved = await getSaved();
+      if (saved[tok.w]) { await toggleSaved(tok.w, null); paint(false); return; }
+      let p = tok.p, d = tok.g ? cleanDef(tok.g) : '';
+      try {
+        const res = await chrome.runtime.sendMessage({ type: 'lookup', word: tok.w, lang: tok.lang ?? currentLang, reading: readingMode });
+        if (res?.found && res.entries?.[0]) {
+          p = res.entries[0].p || p;
+          d = res.entries[0].defs.map(cleanDef).filter(Boolean).slice(0, 2).join('; ') || d;
+        }
+      } catch { /* offline or context gone: keep what the interlinear already showed */ }
+      await toggleSaved(tok.w, wgRecord({ p, d, lang: tok.lang ?? currentLang, ctx }));
+      paint(true);
+      refreshReviewBar();
+    });
+    return star;
   }
 
   function creditLink(href, text, cls) {
@@ -644,6 +691,22 @@
     return zhxSaved ?? {};
   }
 
+  // Every save carries the sentence it was met in. contextSample already computes exactly
+  // this string for language detection and then throws it away, so a reader who saved a
+  // word got back a bare headword with no memory of why they had stopped for it — and the
+  // Anki export inherited that emptiness.
+  function wgRecord({ p, d, lang, ctx }) {
+    const rec = {
+      p: p ?? '',
+      d: d ?? '',
+      t: Date.now(),
+      lang: lang ?? currentLang,
+      box: 1, correct: 0, due: Date.now() + WG_BOX_MS[1], // spaced-review schedule
+    };
+    if (ctx) rec.ctx = ctx.length > 160 ? ctx.slice(0, 157) + '…' : ctx;
+    return rec;
+  }
+
   async function toggleSaved(word, info) {
     const saved = await getSaved();
     if (saved[word]) delete saved[word];
@@ -664,7 +727,14 @@
   const WG_BOX_MS = { 1: 8 * 60e3, 2: 22 * 3600e3, 3: 3 * 86400e3, 4: 7 * 86400e3, 5: 21 * 86400e3 };
   const WG_KNOWN = 4;
   function wgState(e) { const b = e.box ?? 1; return b >= WG_KNOWN ? 'known' : (e.correct ?? 0) >= 1 ? 'learning' : 'new'; }
-  function wgDue(saved, now) { now = now ?? Date.now(); return Object.keys(saved).filter((w) => (saved[w].due ?? 0) <= now); }
+  // A word with no definition is still worth collecting — a Malaysian term or a proper
+  // noun the dictionary has never heard of is exactly what a reader wants to keep — but it
+  // cannot be REVIEWED: the forced-choice card would have no right answer to offer. Those
+  // words live in the shelves and the export and simply never come due.
+  function wgDue(saved, now) {
+    now = now ?? Date.now();
+    return Object.keys(saved).filter((w) => saved[w].d && (saved[w].due ?? 0) <= now);
+  }
   function wgShort(s) { return cleanDef(String(s ?? '')).replace(/^\s*\d+\.\s*/, '').split(/[;,]|\bof\b/)[0].trim().slice(0, 36); }
   function txtEl(cls, t) { const d = document.createElement('div'); d.className = cls; d.textContent = t; return d; }
   function placeCenter(el) {
@@ -992,23 +1062,27 @@
       }
       hdr.appendChild(langChip(null));
       hdr.appendChild(speakButton(word));
-      if (res.found) {
+      {
+        // No res.found gate. Every Malaysian term, brand and proper noun — precisely the
+        // vocabulary a reader stops for — is absent from CC-CEDICT, and gating the star on
+        // a dictionary hit made those words literally unsaveable. They are collected with
+        // whatever is known and simply never come due for review (see wgDue).
         const star = document.createElement('button');
         star.className = 'icon';
-        star.title = 'Save word';
+        star.title = res.found ? 'Save word' : 'Save word (not in the dictionary — kept for your list)';
         star.textContent = '☆';
         getSaved().then((s) => {
           if (s[word]) { star.textContent = '★'; star.classList.add('on'); }
         });
         star.addEventListener('click', async (ev) => {
           ev.stopPropagation();
-          const on = await toggleSaved(word, {
-            p: res.entries[0].p,
-            d: res.entries[0].defs.map(cleanDef).filter(Boolean).slice(0, 2).join('; '),
-            t: Date.now(),
+          const e0 = res.found ? res.entries[0] : null;
+          const on = await toggleSaved(word, wgRecord({
+            p: e0?.p,
+            d: e0 ? e0.defs.map(cleanDef).filter(Boolean).slice(0, 2).join('; ') : '',
             lang: currentLang,
-            box: 1, correct: 0, due: Date.now() + WG_BOX_MS[1], // spaced-review schedule
-          });
+            ctx: selState?.text,
+          }));
           if (on) refreshReviewBar();
           star.textContent = on ? '★' : '☆';
           star.classList.toggle('on', on);
@@ -1391,7 +1465,7 @@
     // 'auto' lets the browser bidi-order each run, so an RTL run (Hebrew/Arabic) inside a
     // mixed selection reads correctly alongside LTR runs.
     line.setAttribute('dir', !mixed && meta().dir === 'rtl' ? 'rtl' : 'auto');
-    renderTokens(tokens, line, true);
+    renderTokens(tokens, line, true, text);
 
     // Comprehension before decomposition. A reader who highlights a sentence wants to know
     // what it SAYS; the word breakdown then explains why it says that. So the fluent

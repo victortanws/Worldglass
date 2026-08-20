@@ -107,7 +107,14 @@ async function renderSaved() {
 exportBtn.addEventListener('click', async () => {
   const { zhxSaved = {} } = await chrome.storage.local.get('zhxSaved');
   const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-  const csv = Object.entries(zhxSaved).map(([w, i]) => [esc(w), esc(i.p), esc(i.d)].join(',')).join('\n');
+  // Carry the sentence and the language, not just three bare columns. A card that shows
+  // the word in the sentence you actually met it in is the whole point of sentence mining,
+  // and the language column is what lets a multi-language deck be split after import.
+  const header = ['word', 'reading', 'meaning', 'sentence', 'language'].join(',');
+  const rows = Object.entries(zhxSaved)
+    .sort((a, b) => (b[1].t ?? 0) - (a[1].t ?? 0))
+    .map(([w, i]) => [esc(w), esc(i.p), esc(i.d), esc(i.ctx), esc(i.lang)].join(','));
+  const csv = [header, ...rows].join('\n');
   await navigator.clipboard.writeText(csv);
   exportBtn.textContent = 'Copied';
   setTimeout(() => { exportBtn.textContent = 'Copy as CSV (Anki)'; }, 1500);
