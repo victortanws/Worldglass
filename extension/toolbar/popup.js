@@ -6,11 +6,27 @@ const script = document.getElementById('script');
 const fabToggle = document.getElementById('fab');
 const textSize = document.getElementById('textsize');
 
-chrome.storage.local.get({ zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 }).then((cfg) => {
+const enabledToggle = document.getElementById('enabled');
+const onoffWord = document.getElementById('onoff-word');
+const subHint = document.getElementById('sub-hint');
+function paintEnabled(on) {
+  enabledToggle.checked = on;
+  onoffWord.textContent = on ? 'on' : 'off';
+  enabledToggle.closest('.main-toggle').classList.toggle('off', !on);
+  subHint.textContent = on
+    ? 'Select text in any supported language — Worldglass detects it automatically.'
+    : 'Off: highlighting does nothing. The OCR button here, the right-click menu and Alt+Shift+O still work.';
+}
+chrome.storage.local.get({ zhxEnabled: true, zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 }).then((cfg) => {
+  paintEnabled(cfg.zhxEnabled !== false);
   reading.value = cfg.zhxReading;
   script.value = cfg.zhxScript;
   fabToggle.checked = cfg.zhxFab !== false;
   textSize.value = String(cfg.zhxTextSize ?? 1);
+});
+enabledToggle.addEventListener('change', () => {
+  paintEnabled(enabledToggle.checked);
+  chrome.storage.local.set({ zhxEnabled: enabledToggle.checked });
 });
 reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: reading.value }));
 script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));

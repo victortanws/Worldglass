@@ -8,6 +8,9 @@
     .sub { color: #8a8781; font-size: 12px; margin: 0 0 12px; }
     h2 { font-size: 12px; font-weight: 600; color: #6b6960; margin: 14px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
     label.row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+    .main-toggle { font-weight: 600; border: 1px solid #ece5d6; border-radius: 8px; padding: 7px 10px; margin: 2px 0 8px; }
+    .main-toggle b { margin-left: auto; margin-right: 8px; font-weight: 600; color: #2f7a45; }
+    .main-toggle.off b { color: #a86a1e; }
     select { font: inherit; }
     p.hint { color: #8a8781; font-size: 12px; margin: 8px 0 0; }
     .langs { font-size: 11px; color: #8a8781; line-height: 1.6; }
@@ -37,13 +40,17 @@
       button.act { background: #26251f; color: #8ab4e8; border-color: #3f5876; }
       .empty, p.hint { color: #a8a496; }
       .shelf { border-color: #45443c; } .shelf .n { color: #ece9e2; } .shelf .l { color: #a8a496; }
+      .main-toggle { border-color: #45443c; } .main-toggle b { color: #86c896; } .main-toggle.off b { color: #d6a95a; }
       .shelf.known .n { color: #86c896; } .shelf.due .n { color: #d6a95a; }
     }
   </style>
 </head>
 <body>
   <h1>Worldglass</h1>
-  <p class="sub">Select text in any supported language — Worldglass detects it automatically.</p>
+  <label class="row main-toggle">Worldglass is <b id="onoff-word">on</b>
+    <input type="checkbox" id="enabled" checked>
+  </label>
+  <p class="sub" id="sub-hint">Select text in any supported language — Worldglass detects it automatically.</p>
   <label class="row">Chinese readings
     <select id="reading">
       <option value="man">Mandarin (pinyin)</option>

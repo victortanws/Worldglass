@@ -1113,6 +1113,19 @@
     }
 
     if (!res.found) {
+      // Cross-language rescue. A reader on a French page who clicks a quoted Malay word —
+      // or a reader whose whole page was mis-routed — used to hit "no entry" in a language
+      // the word was never in. Before giving up, ask the OTHER Latin dictionaries; the
+      // English-common guard keeps "content" from resolving as French on an English page.
+      if (!redirected && LATIN_PROBE.includes(currentLang)
+        && /^[A-Za-zÀ-ÖØ-öø-ÿŒœÆæ''-]+$/.test(word) && !LensDetect.isEnglishCommon(word.toLowerCase())) {
+        const rescued = await firstDictHit(word, LATIN_PROBE.filter((l) => l !== currentLang));
+        if (seq !== renderSeq || !pop.isConnected) return;
+        if (rescued) {
+          currentLang = rescued; // the chip re-renders from currentLang, so the switch is visible
+          return renderEntry(pop, word, true);
+        }
+      }
       const nf = document.createElement('div');
       nf.className = 'nf';
       nf.textContent = 'No dictionary entry for this exact string.';
@@ -1391,6 +1404,9 @@
   }
 
   async function openSelection(text, getRect, truncated, det) {
+    // Routing can take a moment (dictionary witness probe, pack load), and the reader may
+    // flip the switch in that window — an in-flight selection must not pop after "off".
+    if (!wgEnabled) return;
     ensureUI();
     bump('sel');
     selState = { text, getRect, truncated };
@@ -1550,10 +1566,11 @@
   // starts a snip in place. Click = snip; drag = reposition.
   let fab = null;
   let fabOn = true;
+  let wgEnabled = true;
   let textScale = 1;
   function ensureFab() {
     if (!IS_TOP) return;
-    if (!fabOn) { if (fab) fab.style.display = 'none'; return; }
+    if (!fabOn || !wgEnabled) { if (fab) fab.style.display = 'none'; return; }
     ensureUI();
     if (fab) { fab.style.display = ''; return; }
     fab = document.createElement('button');
@@ -1702,9 +1719,14 @@
 
   // The full routing decision for one selection.
   async function routeSelection(text, ctx) {
-    // The page hint we hand the detector is the best evidence we have, not <html lang>.
-    const hint = sitePref ?? pageLangPrior() ?? document.documentElement.lang ?? null;
-    const det = LensDetect.detect(text, ctx, hint);
+    // Two grades of hint. The reader's own per-site choice is a command and wins outright.
+    // Anything the PAGE supplies — <html lang>, the sampled page prior — is only a prior:
+    // templates lie, and a wrong lang attribute must lose to five Malay stopwords in the
+    // selection itself (it didn't, once: a Malay paragraph glossed via French "buter").
+    const soft = pageLangPrior() ?? document.documentElement.lang ?? null;
+    const det = sitePref
+      ? LensDetect.detect(text, ctx, sitePref, true)
+      : LensDetect.detect(text, ctx, soft);
 
     // A non-Latin script settles it: hangul, kana, Hebrew and Jawi letters are unambiguous,
     // and the detector already carries zh/ja/ko and ar/jawi alternatives as candidates.
@@ -1727,6 +1749,25 @@
         if (lang) {
           return withAlternatives({ lang, supported: true, confidence: 0.6, reason: 'dictionary',
             candidates: order.filter((l) => l !== lang) }, text);
+        }
+      }
+    }
+    // Stopword scoring is silent on a sentence that happens to contain none —
+    // "Kerajaan Malaysia mengumumkan dasar baharu" is ordinary Malay and scored zero,
+    // so highlighting it did NOTHING at all. Before giving up, ask the dictionaries
+    // about the most distinctive word in the selection. One long content word is a
+    // strong witness ('mengumumkan' exists in exactly one of the four Latin dicts),
+    // and the English-common guard keeps ordinary English from probing.
+    if (!det.supported && (det.reason === 'latin-no-evidence' || det.reason === 'english')) {
+      const witnesses = (text.toLowerCase().match(/[a-zà-öø-ÿœæ'-]+/g) ?? [])
+        .filter((w) => w.length >= 5 && !LensDetect.isEnglishCommon(w))
+        .sort((a, b) => b.length - a.length)
+        .slice(0, 2);
+      for (const w of witnesses) {
+        const lang = await firstDictHit(w, LATIN_PROBE);
+        if (lang) {
+          return withAlternatives({ lang, supported: true, confidence: 0.55, reason: 'dictionary-witness',
+            candidates: LATIN_PROBE.filter((l) => l !== lang).map((l) => ({ lang: l })) }, text);
         }
       }
     }
@@ -1763,6 +1804,7 @@
   }
 
   document.addEventListener('mouseup', (ev) => {
+    if (!wgEnabled) return;
     if (ev.composedPath().includes(host)) return;
     setTimeout(async () => {
       const sel = window.getSelection();
@@ -1966,7 +2008,7 @@
     if (nodes.length) await annotateNodes(nodes);
   }
 
-  const SETTINGS = { zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 };
+  const SETTINGS = { zhxEnabled: true, zhxPinyin: false, zhxBounds: false, zhxHskMax: 0, zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 };
 
   // Stroke-dense CJK at a fixed small size is illegible to a lot of readers, and there is
   // no browser zoom that reaches inside a shadow root. One variable scales the whole panel.
@@ -1993,6 +2035,13 @@
 
   function applyModes(cfg) {
     ensurePageStyle();
+    // The master switch. OFF kills the two UNPROMPTED surfaces — the popup that follows a
+    // text selection, and the floating OCR button — because "I highlighted to copy, not to
+    // translate" is a legitimate mode of reading. Deliberate entrances stay live: the
+    // toolbar OCR button, the right-click menu and the keyboard shortcut all still work,
+    // so switching back on never means digging through settings mid-page.
+    wgEnabled = cfg.zhxEnabled !== false;
+    if (!wgEnabled) { closePopup(1); hideReviewBar(); }
     knownMax = Number(cfg.zhxHskMax) || 0;
     const newReading = cfg.zhxReading ?? 'man';
     const newScript = cfg.zhxScript ?? 'auto';
@@ -2034,7 +2083,9 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!('zhxPinyin' in changes) && !('zhxBounds' in changes) && !('zhxHskMax' in changes) && !('zhxReading' in changes) && !('zhxScript' in changes) && !('zhxFab' in changes) && !('zhxTextSize' in changes)) return;
+    // Derive the watch list from SETTINGS itself — a hand-maintained copy omitted the
+    // master switch the day it was added, so the toggle only worked after a page reload.
+    if (!Object.keys(SETTINGS).some((k) => k in changes)) return;
     chrome.storage.local.get(SETTINGS).then(applyModes);
   });
 })();

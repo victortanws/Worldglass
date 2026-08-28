@@ -31,7 +31,7 @@
     fr: { ch: /[éèêëàâîïôûùçœæ]/gi, sw: new Set(['le', 'la', 'les', 'des', 'est', 'et', 'une', 'un', 'dans', 'que', 'qui', 'pour', 'avec', 'sur', 'pas', 'vous', 'nous', 'je', 'il', 'elle', 'du', 'au', 'aux', 'ce', 'cette', 'ne', 'plus', 'ou', 'mais', 'comme', 'son', 'ses', 'leur', 'aussi', 'être', 'sont']) },
     de: { ch: /[äöüßÄÖÜ]/g, sw: new Set(['der', 'die', 'das', 'und', 'ist', 'nicht', 'ein', 'eine', 'einen', 'mit', 'für', 'auf', 'sich', 'werden', 'wird', 'auch', 'ich', 'sie', 'wir', 'den', 'dem', 'des', 'von', 'zu', 'im', 'aber', 'oder', 'wenn', 'nur', 'noch', 'schon', 'sind', 'haben', 'wie']) },
     es: { ch: /[ñÑ¿¡áéíóúü]/gi, sw: new Set(['el', 'la', 'los', 'las', 'es', 'y', 'en', 'por', 'para', 'con', 'una', 'un', 'se', 'del', 'como', 'está', 'pero', 'yo', 'que', 'de', 'su', 'sus', 'lo', 'le', 'les', 'más', 'muy', 'ya', 'este', 'esta', 'son', 'fue', 'hay', 'porque', 'cuando']) },
-    ms: { ch: /(?!)/, sw: new Set(['yang', 'dan', 'untuk', 'dengan', 'tidak', 'tak', 'adalah', 'ialah', 'ini', 'itu', 'saya', 'awak', 'kami', 'kita', 'mereka', 'dia', 'akan', 'telah', 'sudah', 'dalam', 'pada', 'oleh', 'atau', 'kerana', 'boleh', 'orang', 'negara', 'dari', 'ada', 'juga', 'sebagai', 'hendak', 'kepada', 'ke', 'di']) },
+    ms: { ch: /(?!)/, sw: new Set(['yang', 'dan', 'untuk', 'dengan', 'tidak', 'tak', 'adalah', 'ialah', 'ini', 'itu', 'saya', 'awak', 'kami', 'kita', 'mereka', 'dia', 'akan', 'telah', 'sudah', 'dalam', 'pada', 'oleh', 'atau', 'kerana', 'boleh', 'orang', 'negara', 'dari', 'ada', 'juga', 'sebagai', 'hendak', 'kepada', 'ke', 'di', 'hanya', 'masih', 'walaupun', 'bukan', 'belum', 'tetapi', 'seperti', 'secara', 'semua', 'antara', 'bahawa', 'iaitu', 'serta', 'sangat', 'lebih', 'bagi', 'terhadap', 'sedang']) },
     en: { ch: /(?!)/, sw: new Set(['the', 'and', 'of', 'to', 'in', 'is', 'that', 'for', 'it', 'with', 'as', 'was', 'on', 'are', 'be', 'this', 'have', 'from', 'or', 'by', 'not', 'but', 'what', 'all', 'were', 'we', 'when', 'there', 'can', 'an', 'which', 'their', 'if', 'will', 'about', 'them', 'these', 'she', 'he', 'they', 'you', 'has', 'his', 'her']) },
   };
   const LATIN_SUPPORTED = ['fr', 'de', 'es', 'ms'];
@@ -65,7 +65,8 @@
     return Object.assign({ lang, supported, confidence, reason, candidates: [] }, extra || {});
   }
 
-  function detect(text, context, pageLang) {
+  // hardHint: the pageLang came from the READER (per-site preference), not from the page.
+  function detect(text, context, pageLang, hardHint) {
     text = (text || '').trim();
     context = context || '';
     const hint = pageHint(pageLang);
@@ -100,19 +101,26 @@
 
     // 4. Latin script: fr / de / es / ms, or English/unknown
     if (RE.latin.test(text)) {
-      if (['fr', 'de', 'es'].includes(hint)) return result(hint, 0.9, 'page-lang-' + hint);
-      if (hint === 'ms') return result('ms', 0.9, 'page-lang-ms');
+      // A HARD hint is an explicit user choice ("always French on this site") and wins
+      // outright. A page-supplied hint — <html lang> or a sampled page prior — is only a
+      // prior: templates lie, and a wrong lang attribute was routing Malay paragraphs to
+      // French while five Malay stopwords sat unread in the selection. Soft hints join
+      // the evidence as a bonus, so real text outvotes a wrong attribute and still breaks
+      // ties on a genuinely ambiguous fragment.
+      const latinHint = ['fr', 'de', 'es', 'ms'].includes(hint) ? hint : null;
+      if (latinHint && hardHint) return result(latinHint, 0.9, 'site-pref-' + latinHint);
       const sample = text + ' ' + context.slice(0, 400);
       const wl = words(sample);
       const scores = {};
       for (const code of [...LATIN_SUPPORTED, 'en']) scores[code] = latinScore(code, sample, wl);
+      if (latinHint) scores[latinHint] += 4; // one stopword's worth, plus a tiebreak edge
       const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
       const [topCode, topScore] = ranked[0];
       const secondScore = ranked[1][1];
       const candidates = ranked.filter(([, s]) => s > 0).map(([lang, score]) => ({ lang, score }));
       if (topScore === 0) {
-        // No evidence: fall back to page hint if it is a latin language, else undetermined.
-        if (['fr', 'de', 'es', 'ms'].includes(hint)) return result(hint, 0.5, 'latin-fallback-pagelang');
+        // No evidence at all: the hint is the only signal there is.
+        if (latinHint) return result(latinHint, 0.5, 'latin-fallback-pagelang');
         return result('und', 0.2, 'latin-no-evidence', { candidates });
       }
       if (topCode === 'en') return result('en', 0.6, 'english', { candidates });

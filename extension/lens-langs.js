@@ -2006,6 +2006,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
@@ -2284,6 +2289,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
@@ -2646,6 +2656,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
@@ -2927,6 +2942,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
@@ -3285,6 +3305,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
@@ -3643,6 +3668,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
@@ -3862,7 +3892,16 @@ function zhxCandidates(word) {
   const lower = word.toLowerCase();
   const bases = new Set([lower]);
   const hy = lower.indexOf('-');
-  if (hy > 0) { bases.add(lower.slice(0, hy)); bases.add(lower.slice(hy + 1).replace(/(an|nya)$/, '')); }
+  if (hy > 0) {
+    // Longest part first. al-Quran was glossing as "angkatan laut" because the tiny
+    // article-like first part 'al' hit an abbreviation row and the lookup early-exited
+    // before ever trying 'quran'. The substantial half of a hyphenated word is the head.
+    const p1 = lower.slice(0, hy);
+    const p2 = lower.slice(hy + 1);
+    // The an/nya strip exists for reduplicated plurals, but it must not REPLACE the raw
+    // part: stripping turned 'quran' into 'qur' before the real word was ever tried.
+    for (const part of [p1, p2, p2.replace(/(an|nya)$/, '')].sort((a, b) => b.length - a.length)) bases.add(part);
+  }
   const queue = [lower];
   let guard = 0;
   while (queue.length && guard++ < 40) {
@@ -4042,6 +4081,11 @@ function zhxTidyGloss(raw, word) {
   if (/^[A-Z]/.test(s) && /\s/.test(s) && !/^[A-Z]\S*\s+[A-Z]/.test(s)) s = s[0].toLowerCase() + s.slice(1);
   // Reject BEFORE truncating: an ellipsis in the middle of "first-person singular pre…"
   // defeats a whole-string match, so a grammar description would slip through.
+  // But a single ordinary word is a MEANING even when it also appears in the grammar
+  // vocabulary: hanya means exactly "only", beide means exactly "both" — the rejection is
+  // for descriptions built OF such words ("form of the first-person singular"), never for
+  // one of them standing alone as the entire gloss.
+  if (/^(?:only|both|all|form|forms|degree|used)$/i.test(s)) return s;
   if (ZHX_GRAM_ONLY_RE.test(s)) return null;
   return zhxFit(s, 26);
 }
