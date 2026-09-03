@@ -133,7 +133,7 @@ Used to read the text the user has highlighted on the page they are currently vi
 
 **`storage`**
 ```
-Stores the user's own settings (reading style, script preference, text size) and the words they explicitly choose to save for review. All of it stays on the user's device.
+Stores the user's own settings (on/off switch, reading style, script preference, known-word level, text size), the words they explicitly choose to save for review, and a private count of their own use that they can delete from the toolbar. All of it stays on the user's device; nothing is transmitted.
 ```
 
 **`unlimitedStorage`**
