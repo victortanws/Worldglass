@@ -272,7 +272,7 @@ function zhxFamily(ch, exclude, mode, limit) {
   words.sort((a, b) => (zhxHsk[a] ?? 99) - (zhxHsk[b] ?? 99) || a.length - b.length);
   return words.slice(0, limit ?? 10).map((w) => {
     const entry = zhxPickEntry(w, zhxIndex.get(w));
-    const gloss = entry.d.find((d) => !/^CL:/.test(d)) ?? entry.d[0] ?? '';
+    const gloss = zhxStripPos(entry.d.find((d) => !/^CL:/.test(d)) ?? entry.d[0] ?? '');
     const rd = zhxReadingFor(mode, entry.p, w, entry.s, entry.t);
     return { w, p: rd.p, ps: rd.src, g: gloss, h: zhxHsk[w] ?? 0 };
   });
@@ -297,15 +297,25 @@ const ZHX_FUNC_GLOSS = {
   // First-def order in CC-CEDICT buries the reading a sentence usually needs.
   等: 'etc. · to wait', 故: 'therefore · reason', 为: 'for/as/(is)', 由: 'by/from', 将: 'will/(object marker)',
   我的: 'my/mine', 你的: 'your/yours', 他的: 'his', 她的: 'her/hers', 它的: 'its',
+  // Everyday words whose first CC-CEDICT sense is the one a reader meets last: 桌子上 is
+  // "on", 我想去 is "want", 请坐 is "please", 一起去 is "together".
+  上: 'on/above · up', 下: 'under/below · down', 想: 'to want · to think', 请: 'please · to invite',
+  一起: 'together', 点: "dot/point · o'clock",
 };
 
 // Short per-word gloss for interlinear display. Scans the picked entry first, then the
 // word's other entries — variant-pointer rows ("variant of 宣佈") often sit beside a real
 // entry that carries the meaning.
+// A merged wordlist prefixes ~1,200 senses with a bare part-of-speech label ("noun; a lot
+// of", "adj.; inconsistent with the facts"). Split at the semicolon, that told the reader
+// 很多 and 奇迹 both mean "noun".
+const ZHX_POS_LEAD_RE = /^(?:noun|verb|adjective|adverb|adj\.?|adv\.?|n\.|v\.|pronoun|conjunction|preposition|interjection)\s*[;:,]\s*/i;
+function zhxStripPos(d) { return d.replace(ZHX_POS_LEAD_RE, ''); }
+
 function zhxCleanDef(d) {
   // Strip bracketed pinyin, keep the simplified half of trad|simp pairs, drop ALL
   // leading parenthesized register tags — 他 opens with two of them.
-  return d.replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
+  return zhxStripPos(d).replace(/\[[a-zA-ZüU: 1-5,·-]+\]/g, '').replace(/([㐀-䶿一-鿿豈-﫿]+)\|([㐀-䶿一-鿿豈-﫿]+)/g, '$2')
     .replace(/^(?:\([^)]{0,40}\)\s*)+/, '').split(/[;(]/)[0].replace(/[\s.:;,]+$/, '').trim();
 }
 
@@ -413,9 +423,17 @@ function zhxSegmentRun(run, mode) {
         // Frequency guard: only rebalance when the new pair is at least as common as the
         // word it breaks (HSK level, lower = more basic; absent = 99). Without it, 任何以…
         // became 任 + 何以 ("why", literary) — trading an everyday word for a rare one.
+        // The guard alone still read 会说法语 as 说法 + 语 ("way of speaking" + language):
+        // 法语 sits above 说法 on the HSK scale and 法国 is on no scale at all. So a basic
+        // word (HSK ≤ 2) cut off a rarer compound may also take the pair when the pair is
+        // a learner word or a proper noun (CC-CEDICT capitalises those) — never when the
+        // stranded character is a particle (开心地 must not become 开 + 心地).
+        const head = word.slice(0, -1);
         const pair = word.slice(-1) + run[j];
         const lvl = (w) => zhxHsk[w] || 99;
-        if (lvl(pair) <= lvl(word)) word = word.slice(0, -1);
+        const proper = /^[A-Z]/.test(zhxPickEntry(pair, zhxIndex.get(pair)).p);
+        const basicHead = lvl(head) <= 2 && lvl(head) < lvl(word) && !'的地得了着过们吗呢吧啊'.includes(run[j]);
+        if (lvl(pair) <= lvl(word) || (basicHead && (lvl(pair) < 99 || proper))) word = head;
       }
     }
     if (!word) {
@@ -429,6 +447,12 @@ function zhxSegmentRun(run, mode) {
       tokens.push({ w: word, p: rd2.p, ps: rd2.src, g: zhxTokenGloss(entry, entries), han: true, h: zhxHsk[word] ?? 0 });
       i += word.length;
     }
+  }
+  // 七点 is seven o'clock, not "seven" + "to touch briefly"; 三点五 is three point five.
+  const NUM_RE = /^[零〇一二两三四五六七八九十百0-9０-９]+$/;
+  for (let k = 1; k < tokens.length; k++) {
+    if (tokens[k].w !== '点' || !NUM_RE.test(tokens[k - 1].w)) continue;
+    tokens[k].g = NUM_RE.test(tokens[k + 1]?.w ?? '') ? 'point (decimal)' : "o'clock";
   }
   return tokens;
 }
@@ -598,7 +622,7 @@ async function zhxHandle(msg) {
         ps: zhxReadingFor(mode, e.p, msg.word, e.s, e.t).src,
         p2: dialect ? zhxAccent(e.p) : undefined,
         pn: e.p,
-        defs: e.d.filter((d) => !/^CL:/.test(d)),
+        defs: e.d.filter((d) => !/^CL:/.test(d)).map(zhxStripPos),
       })),
       chars: msg.word.length > 1 ? zhxCharBreakdown(msg.word, entries[0].p, mode) : [],
     };
