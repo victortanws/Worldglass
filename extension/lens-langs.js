@@ -614,10 +614,29 @@ async function zhxHandle(msg) {
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
-    const ids = bank.idx[msg.word] ?? [];
-    return ids.slice(0, msg.limit ?? 2).map((id) => {
+    // Look the word up under BOTH its forms: a reader on "Always Simplified" clicking a
+    // traditional headword still deserves its examples, and vice versa.
+    const own = zhxIndex.get(msg.word);
+    const twin = own ? zhxPickEntry(msg.word, own) : null;
+    const keys = [...new Set([msg.word, twin?.s, twin?.t].filter(Boolean))];
+    const ids = keys.flatMap((k) => bank.idx[k] ?? []);
+    // About a third of the sentence bank is written in traditional characters. A reader
+    // who chose "Always Simplified" ruled that script out; showing it a third of the time
+    // in the examples is answering in the script they asked not to see. Convert each
+    // word through its own dictionary entry — the same s/t pair the popup already uses.
+    const want = msg.script === 'simp' ? 's' : msg.script === 'trad' ? 't' : null;
+    return [...new Set(ids)].slice(0, msg.limit ?? 2).map((id) => {
       const [cmn, eng] = bank.s[id];
-      return { tokens: zhxTokenize(cmn, msg.reading), eng };
+      const tokens = zhxTokenize(cmn, msg.reading);
+      if (want) {
+        for (const tok of tokens) {
+          if (!tok.han) continue;
+          const list = zhxIndex.get(tok.w);
+          const e = list ? zhxPickEntry(tok.w, list) : null;
+          if (e && e[want] && e[want] !== tok.w) tok.w = e[want];
+        }
+      }
+      return { tokens, eng };
     });
   }
   throw new Error(`Unknown message type: ${msg.type}`);
@@ -1784,7 +1803,10 @@ async function zhxHandle(msg) {
       .then((r) => r.json())
       .catch(() => ({ s: [], idx: {} }));
     const bank = await zhxSentPromise;
-    const ids = bank.idx[msg.word] ?? [];
+    // The bank is keyed on bare words; a saved or clicked word usually arrives as an
+    // eojeol (정부는, 학교에서). Strip to the stem the dictionary resolved before asking,
+    // or three saved words in four came back with no example at all.
+    const ids = bank.idx[msg.word] ?? bank.idx[zhxLookupStem(msg.word)?.matched] ?? [];
     return ids.slice(0, msg.limit ?? 2).map((id) => {
       const [kor, eng] = bank.s[id];
       return { tokens: zhxTokenize(kor), eng };

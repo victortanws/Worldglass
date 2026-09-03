@@ -101,6 +101,8 @@
     .tok-g { font-size: calc(11px * var(--wg-scale)); line-height: 1.3; color: #7c7970; max-width: 92px; white-space: normal;
              overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
     .tok-g.gram { font-style: italic; opacity: .85; }
+    .tok-col.known .tok-g { opacity: .3; }
+    .tok-col.known:hover .tok-g, .tok-col.known:focus-within .tok-g { opacity: 1; }
     /* Composed reading: dotted, because the word is a guess assembled from its parts.
        Mandarin stand-in: italic and dimmed, because it is a different language entirely. */
     rt.rd-approx, .py.rd-approx { border-bottom: 1px dotted currentColor; opacity: .8; }
@@ -458,6 +460,11 @@
       }
       const col = document.createElement('span');
       col.className = 'tok-col';
+      // De-emphasise words the reader has said they know (HSK level ≤ their setting), so
+      // the eye lands on the word worth learning instead of scanning twelve equal
+      // columns. The level rides on every Chinese token already (tok.h) and was being
+      // dropped here. Hover or focus restores the gloss; nothing is hidden for good.
+      if (tok.h && isKnown(tok.h)) col.classList.add('known');
       const wordEl = document.createElement('span');
       wordEl.className = 'tok-w';
       const node = rubyNode(tok.w, tok.p, true, tok.f, tok.lang, tok.ps);
@@ -989,7 +996,7 @@
     pop.dataset.word = word;
     const [res, examples] = await Promise.all([
       chrome.runtime.sendMessage({ type: 'lookup', word, lang: currentLang, reading: readingMode }),
-      chrome.runtime.sendMessage({ type: 'examples', word, limit: 2, lang: currentLang, reading: readingMode }).catch(() => []),
+      chrome.runtime.sendMessage({ type: 'examples', word, limit: 2, lang: currentLang, reading: readingMode, script: scriptPref }).catch(() => []),
     ]);
     if (seq !== renderSeq || !pop.isConnected) return;
 
@@ -2042,7 +2049,9 @@
     // so switching back on never means digging through settings mid-page.
     wgEnabled = cfg.zhxEnabled !== false;
     if (!wgEnabled) { closePopup(1); hideReviewBar(); }
-    knownMax = Number(cfg.zhxHskMax) || 0;
+    const newKnown = Number(cfg.zhxHskMax) || 0;
+    const knownChanged = newKnown !== knownMax;
+    knownMax = newKnown;
     const newReading = cfg.zhxReading ?? 'man';
     const newScript = cfg.zhxScript ?? 'auto';
     const readingChanged = newReading !== readingMode;
@@ -2053,7 +2062,7 @@
     textScale = Number(cfg.zhxTextSize) || 1;
     ensureFab();
     applyTextSize(textScale);
-    if (readingChanged || scriptChanged) rerenderPopups();
+    if (readingChanged || scriptChanged || knownChanged) rerenderPopups();
     if (readingChanged && annotated) {
       revertAnnotation();
       if (cfg.zhxPinyin || cfg.zhxBounds) annotatePage().then(reapplyKnown);

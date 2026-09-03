@@ -25,7 +25,8 @@ Created by [Victor Tan](https://www.victor-tan.com) · [YouTube](https://www.you
   Arabic, Hebrew, Jawi, Malay, French, German, Spanish. More on request.
 
 Everything runs locally. The dictionaries are bundled with the extension, so lookups never
-touch a server — no account, no analytics, no tracking.
+touch a server — no account, and nothing about you is transmitted. A private count of your
+own use stays on your device and can be deleted from the toolbar.
 
 ## Install (load unpacked)
 

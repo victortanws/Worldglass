@@ -5,6 +5,7 @@ const exportBtn = document.getElementById('export');
 const script = document.getElementById('script');
 const fabToggle = document.getElementById('fab');
 const textSize = document.getElementById('textsize');
+const hskMax = document.getElementById('hskmax');
 
 const enabledToggle = document.getElementById('enabled');
 const onoffWord = document.getElementById('onoff-word');
@@ -17,8 +18,9 @@ function paintEnabled(on) {
     ? 'Select text in any supported language — Worldglass detects it automatically.'
     : 'Off: highlighting does nothing. The OCR button here, the right-click menu and Alt+Shift+O still work.';
 }
-chrome.storage.local.get({ zhxEnabled: true, zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1 }).then((cfg) => {
+chrome.storage.local.get({ zhxEnabled: true, zhxReading: 'man', zhxScript: 'auto', zhxFab: true, zhxTextSize: 1, zhxHskMax: 0 }).then((cfg) => {
   paintEnabled(cfg.zhxEnabled !== false);
+  hskMax.value = String(cfg.zhxHskMax ?? 0);
   reading.value = cfg.zhxReading;
   script.value = cfg.zhxScript;
   fabToggle.checked = cfg.zhxFab !== false;
@@ -32,6 +34,7 @@ reading.addEventListener('change', () => chrome.storage.local.set({ zhxReading: 
 script.addEventListener('change', () => chrome.storage.local.set({ zhxScript: script.value }));
 fabToggle.addEventListener('change', () => chrome.storage.local.set({ zhxFab: fabToggle.checked }));
 textSize.addEventListener('change', () => chrome.storage.local.set({ zhxTextSize: Number(textSize.value) }));
+hskMax.addEventListener('change', () => chrome.storage.local.set({ zhxHskMax: Number(hskMax.value) }));
 
 // Switching language on a popup is remembered for that site; show it here so the choice
 // is visible and reversible rather than a mystery that follows you around.
